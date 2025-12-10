@@ -1,0 +1,46 @@
+# Default configuration
+
+experiment:
+  name: "maze_rl_experiment"
+  seed: 42
+  use_wandb: false
+
+environment:
+  grid_size: 11
+  max_steps: 50
+  obstacle_fraction: 0.25
+  n_food_sources: 4
+  food_energy: 10.0
+  initial_energy: 30.0
+  energy_decay: 0.98
+  energy_per_step: 0.1
+
+model:
+  type: "lstm"  # lstm, transformer, multimemory
+  hidden_size: 512
+  use_auxiliary: false
+  
+  # Transformer-specific
+  num_heads: 8
+  num_layers: 3
+  memory_size: 10
+  
+  # Multi-memory specific
+  cache_size: 50
+
+training:
+  epochs: 10000
+  batch_size: 64
+  learning_rate: 0.0005
+  optimizer: "adam"
+  weight_decay: 0.0
+  gamma: 0.97
+  entropy_coef: 0.01
+  max_grad_norm: 1.0
+  save_interval: 1000
+  test_interval: 1000
+  use_auxiliary: false
+
+evaluation:
+  test_episodes: 10
+  benchmark_episodes: 20
