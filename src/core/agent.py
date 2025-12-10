@@ -7,12 +7,15 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from typing import Dict, Any
+import cv2
+import os
 
 # Import network types
 from src.networks.lstm import LSTMPolicyNet
 from src.networks.transformer import TransformerPolicyNet
 from src.networks.multimemory import MultiMemoryPolicyNet
 from src.core.utils import safe_load
+
 
 class Agent:
     """Agent that interacts with environment using a policy network"""
@@ -167,20 +170,16 @@ class Agent:
         return agent
     
     def test(self, 
-             env,
-             episodes: int = 10,
-             visualize: bool = False,
-             save_video: bool = False) -> Dict[str, Any]:
-        """Test agent performance"""
+            env,
+            episodes: int = 10,
+            visualize: bool = False,
+            save_video: bool = False) -> Dict[str, Any]:
+        """Test agent performance - FIXED VERSION with correct video saving"""
         self.network.eval()
         
         rewards = []
         success_flags = []
         steps_list = []
-        
-        if save_video:
-            import cv2
-            video_writer = None
         
         for episode in range(episodes):
             obs, info = env.reset()
@@ -190,7 +189,7 @@ class Agent:
             steps = 0
             terminated = truncated = False
             
-            frames = []
+            frames = []  # Reset frames for each episode
             
             while not (terminated or truncated) and steps < env.max_steps:
                 # Get action
@@ -205,31 +204,45 @@ class Agent:
                 # Record frame if needed
                 if visualize or save_video:
                     frame = env.render()
-                    if save_video:
-                        frames.append(frame)
-                    if visualize:
-                        cv2.imshow('Test', frame)
-                        cv2.waitKey(1)
-            
-            # Save video if requested
-            if save_video and frames:
-                if video_writer is None:
-                    h, w, _ = frames[0].shape
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    video_path = f'results/videos/test_episode_{episode}.mp4'
-                    video_writer = cv2.VideoWriter(
-                        video_path, fourcc, 20.0, (w, h)
-                    )
+                    if frame is not None:
+                        if save_video:
+                            # Convert RGB to BGR for OpenCV
+                            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                            frames.append(frame_bgr)
+                        if visualize:
+                            cv2.imshow('Test', frame)
+                            cv2.waitKey(50)  # ~20 FPS
                 
-                for frame in frames:
-                    video_writer.write(frame)
+                # Save video for THIS episode immediately
+                if save_video and frames and (terminated or truncated or steps == env.max_steps):
+                    if frames:
+                        # Create video writer for this specific episode
+                        h, w, _ = frames[0].shape
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        video_path = f'results/videos/test_episode_{episode}.mp4'
+                        
+                        # Ensure directory exists
+                        os.makedirs(os.path.dirname(video_path), exist_ok=True)
+                        
+                        video_writer = cv2.VideoWriter(
+                            video_path, fourcc, 20.0, (w, h)
+                        )
+                        
+                        for frame in frames:
+                            video_writer.write(frame)
+                        
+                        video_writer.release()
+                        print(f"✓ Saved video to {video_path}")
+                        
+                        # Clear frames for next episode
+                        frames = []
             
             rewards.append(episode_reward)
             success_flags.append(steps == env.max_steps)
             steps_list.append(steps)
-        
-        if save_video and video_writer is not None:
-            video_writer.release()
+            
+            if visualize:
+                cv2.waitKey(500)  # Pause between episodes
         
         if visualize:
             cv2.destroyAllWindows()
