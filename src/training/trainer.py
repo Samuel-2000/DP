@@ -219,7 +219,7 @@ class ParallelTrainer:
                 'best': f"{self.metrics['best_reward']:.2f}",
                 'coll': f"{avg_coll_time:.2f}s",
                 'train': f"{avg_train_time:.2f}s",
-                'eps/s': f"{self.batch_size/avg_coll_time:.1f}"
+                'eps/s': f"{self.batch_size/(avg_coll_time+avg_train_time):.1f}",
             })
             
             # Log to wandb
