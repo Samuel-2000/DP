@@ -112,19 +112,26 @@ class Benchmark:
         for ext in ['*.pt', '*.pth']:
             model_files.extend(list(self.models_dir.rglob(ext)))
         
-        # Filter out checkpoints if we have final/best models
-        final_models = []
+        # Filter out checkpoints if we have best models
+        best_models = []
         checkpoint_models = []
+        final_models = []
         
         for model_file in model_files:
             if 'checkpoint' in model_file.name or 'epoch' in model_file.name:
                 checkpoint_models.append(model_file)
+            elif 'best' in model_file.name:
+                best_models.append(model_file)
+            elif 'final' in model_file.name:
+                # Skip final.pt files
+                continue
             else:
-                final_models.append(model_file)
+                # Other model files
+                checkpoint_models.append(model_file)
         
-        # Prefer final/best models over checkpoints
-        if final_models:
-            return final_models
+        # Return best.pt files if found, otherwise checkpoints
+        if best_models:
+            return best_models
         else:
             return checkpoint_models
     

@@ -1,5 +1,5 @@
 """
-Vectorized environment for parallel execution using ultra-fast environment
+Vectorized environment for parallel execution using environment
 """
 
 import numpy as np

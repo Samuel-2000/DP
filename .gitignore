@@ -1,9 +1,9 @@
-models/
+
 logs/
 results/benchmarks/
 __pycache__/
 *.pyc
-*.png
+
 *.mp4
 *.wandb
 *checkpoint.pt

@@ -1,6 +1,6 @@
 """
-ULTRA-OPTIMIZED Grid Maze Environment using Gymnasium
-Combines best optimizations from GridMazeWorld, OptimizedGridMazeWorld, and FastGridMazeWorld
+Grid Maze Environment using Gymnasium
+Combines best optimizations from GridMazeWorld
 """
 
 import numpy as np
@@ -30,7 +30,7 @@ class Actions(enum.Enum):
 
 
 @njit(cache=True, parallel=True)
-def add_obstacles_connectivity_fast(grid: np.ndarray, n_obstacles: int) -> np.ndarray:
+def add_obstacles_connectivity(grid: np.ndarray, n_obstacles: int) -> np.ndarray:
     """Add obstacles while maintaining connectivity - OPTIMIZED VERSION"""
     h, w = grid.shape
     total_cells = h * w
@@ -131,10 +131,10 @@ def add_obstacles_connectivity_fast(grid: np.ndarray, n_obstacles: int) -> np.nd
 
 
 @njit(cache=True)
-def food_step_fast(agent_y: int, agent_x: int, 
+def food_step(agent_y: int, agent_x: int, 
                    food_sources: np.ndarray, 
                    food_energy: float) -> float:
-    """Ultra-fast food processing with minimal branching"""
+    """food processing with minimal branching"""
     energy_gained = 0.0
     n_food = food_sources.shape[0]
     
@@ -155,13 +155,13 @@ def food_step_fast(agent_y: int, agent_x: int,
 
 
 @njit(cache=True)
-def get_observation_ultrafast(y: int, x: int, 
+def get_observation(y: int, x: int, 
                              grid: np.ndarray, 
                              food_sources: np.ndarray,
                              last_action: int, 
                              energy: float,
                              food_positions_cache: np.ndarray) -> np.ndarray:
-    """Ultra-fast JIT-compiled observation generation"""
+    """JIT-compiled observation generation"""
     obs = np.empty(10, dtype=np.int32)
     
     # Neighbor offsets in order: NW, N, NE, W, E, SW, S, SE
@@ -199,7 +199,7 @@ def get_observation_ultrafast(y: int, x: int,
 
 
 class GridMazeWorld(gym.Env):
-    """ULTRA-OPTIMIZED Grid Maze Environment"""
+    """Grid Maze Environment"""
     
     def __init__(self, 
                  grid_size: int = 11,
@@ -274,10 +274,10 @@ class GridMazeWorld(gym.Env):
         self.grid[:, -1] = TileType.OBSTACLE.value
         
         # Add obstacles
-        self.grid = add_obstacles_connectivity_fast(self.grid, self.n_obstacles)
+        self.grid = add_obstacles_connectivity(self.grid, self.n_obstacles)
         
         # Initialize food sources
-        self._init_food_sources_fast()
+        self._init_food_sources()
         
         # Initialize food positions cache
         self.food_positions_cache = np.zeros((self.grid_size, self.grid_size), dtype=np.int8)
@@ -300,7 +300,7 @@ class GridMazeWorld(gym.Env):
         }
         
         # Get observation using fast JIT function
-        obs = get_observation_ultrafast(
+        obs = get_observation(
             self.agent_pos[0], self.agent_pos[1],
             self.grid, self.food_sources,
             self.last_action, self.energy,
@@ -309,8 +309,8 @@ class GridMazeWorld(gym.Env):
         
         return obs, info
     
-    def _init_food_sources_fast(self):
-        """Fast food source initialization"""
+    def _init_food_sources(self):
+        """food source initialization"""
         empty_cells = np.argwhere(self.grid == TileType.EMPTY.value)
         indices = np.random.choice(len(empty_cells), self.n_food_sources, replace=False)
         
@@ -329,9 +329,9 @@ class GridMazeWorld(gym.Env):
                 self.food_positions_cache[y, x] = 1
     
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        """Ultra-fast step function with minimal allocations"""
+        """step function with minimal allocations"""
         if self.done:
-            obs = get_observation_ultrafast(
+            obs = get_observation(
                 self.agent_pos[0], self.agent_pos[1],
                 self.grid, self.food_sources,
                 self.last_action, self.energy,
@@ -358,7 +358,7 @@ class GridMazeWorld(gym.Env):
         self.agent_pos = np.array([y, x])
         
         # Process food with JIT-compiled function
-        energy_gained = food_step_fast(y, x, self.food_sources, self.food_energy)
+        energy_gained = food_step(y, x, self.food_sources, self.food_energy)
         
         # Update food cache if food was collected
         if energy_gained > 0:
@@ -392,7 +392,7 @@ class GridMazeWorld(gym.Env):
             self._update_food_cache()
         
         # Get observation
-        obs = get_observation_ultrafast(
+        obs = get_observation(
             y, x, self.grid, self.food_sources,
             action, self.energy,
             self.food_positions_cache
@@ -461,9 +461,9 @@ class GridMazeWorld(gym.Env):
         cv2.destroyAllWindows()
 
 
-# Ultra-fast vectorized environment alternative
+# vectorized environment alternative
 class VectorGridMazeWorld(GridMazeWorld):
-    """Even faster version optimized for vectorized use (no rendering overhead)"""
+    """version optimized for vectorized use (no rendering overhead)"""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -78,7 +78,7 @@ class ResourceMonitor:
 
 
 def create_full_scale_trainer():
-    """Create trainer with your actual training configuration"""
+    """Create trainer with actual training configuration"""
     config = {
         'experiment': {
             'name': 'full_scale_profiling',
@@ -86,7 +86,7 @@ def create_full_scale_trainer():
         },
         'environment': {
             'grid_size': 11,
-            'max_steps': 50,  # Your default
+            'max_steps': 50,  # default
             'obstacle_fraction': 0.25,
             'n_food_sources': 4,
             'food_energy': 10.0,
@@ -95,14 +95,14 @@ def create_full_scale_trainer():
             'energy_per_step': 0.1
         },
         'model': {
-            'type': 'lstm',  # Your default
-            'hidden_size': 512,  # Your default
+            'type': 'lstm',  # default
+            'hidden_size': 512,  # default
             'use_auxiliary': False
         },
         'training': {
-            'epochs': 10000,  # Your default
-            'batch_size': 64,  # YOUR ACTUAL BATCH SIZE
-            'learning_rate': 0.0005,  # Your default
+            'epochs': 10000,  # default
+            'batch_size': 64,  # ACTUAL BATCH SIZE
+            'learning_rate': 0.0005,  # default
             'gamma': 0.97,
             'entropy_coef': 0.01,
             'max_grad_norm': 1.0,
@@ -452,6 +452,6 @@ if __name__ == "__main__":
     print(f"  Estimated environment steps per hour: {steps_per_sec * 3600:,.0f}")
     print(f"  Estimated training time for 10k epochs: {10000 * total_epoch_time / 3600:.1f} hours")
     
-    print(f"\nFor comparison with your actual training:")
+    print(f"\nFor comparison with actual training:")
     print("  Run: python run.py train --batch-size 64 --epochs 100 --save-dir test_profile")
     print("  Then compare the timing with these profiling results.")
