@@ -8,11 +8,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from src.training.parallel_trainer_base import generate_plots_from_metrics
+
 from src.core.agent import Agent
 from src.core.env_factory import EnvironmentFactory
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
-from src.training.trainer import Trainer, generate_plots_from_metrics
+from src.training.trainer import Trainer
 from src.core.constants import (
     DEFAULT_GRID_SIZE, DEFAULT_MAX_STEPS, DEFAULT_OBSTACLE_FRACTION,
     DEFAULT_FOOD_SOURCES, DEFAULT_FOOD_ENERGY, DEFAULT_INITIAL_ENERGY,
@@ -128,6 +130,24 @@ def main():
                 "update_per_episode": args.update_per_episode
             },
         }
+
+        config['training']['algorithm'] = args.algorithm
+        if args.algorithm == 'ppo':
+            config['training']['rollout_steps'] = args.rollout_steps
+            config['training']['ppo_epochs'] = args.ppo_epochs
+            config['training']['mini_batch_size'] = args.mini_batch_size
+            config['training']['clip_epsilon'] = args.clip_epsilon
+            config['training']['value_coef'] = args.value_coef
+            config['training']['gae_lambda'] = args.gae_lambda
+        else:
+            # These keys will still be present (set to None) to avoid KeyError
+            config['training']['rollout_steps'] = None
+            config['training']['ppo_epochs'] = None
+            config['training']['mini_batch_size'] = None
+            config['training']['clip_epsilon'] = None
+            config['training']['value_coef'] = None
+            config['training']['gae_lambda'] = None
+            
         trainer = Trainer(config)
         trainer.train()
 

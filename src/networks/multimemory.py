@@ -5,7 +5,7 @@ Multi-memory network combining LSTM, Transformer, and cache - FIXED VERSION
 import torch
 import torch.nn as nn
 from typing import Optional, Tuple, List
-from .base import BaseNetwork, EmbeddingLayer, AttentionAggregator
+from .base import BaseNetwork
 from .lstm import LSTMPolicyNet
 from .transformer import TransformerPolicyNet
 
@@ -311,7 +311,7 @@ class MultiMemoryPolicyNet(BaseNetwork):
         
         self.write_buffer.clear()
     
-    def reset_state(self, batch_size: int = 1):
+    def reset_state(self):
         """Reset all memory systems"""
         self.lstm_hidden = None
         self.current_batch_size = None

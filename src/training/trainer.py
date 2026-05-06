@@ -791,9 +791,8 @@ class ParallelTrainer:
             
             # Get actions from network
             with torch.no_grad():
-                # Ensure network is in eval mode for inference
                 was_training = self.agent.network.training
-                self.agent.network.eval()
+                self.agent.network.eval()  # Ensure network is in eval mode for inference
                 
                 logits = self.agent.network(observations)  # [B, 1, A]
                 logits = logits.squeeze(1)  # [B, A]
@@ -802,11 +801,11 @@ class ParallelTrainer:
                     self.agent.network.train()
                 
                 # Sample actions during training
-                if self.agent.network.training:
+                if was_training:
                     probs = torch.softmax(logits, dim=-1)
-                    actions = torch.multinomial(probs, 1).squeeze(-1)  # [B]
+                    actions = torch.multinomial(probs, 1).squeeze(-1)  # [B] torch.multinomial samples an action randomly according to those probabilities.
                 else:
-                    actions = logits.argmax(dim=-1)  # [B]
+                    actions = logits.argmax(dim=-1)  # [B] Deterministic greedy
             
             # Convert to numpy for environment step
             actions_np = actions.cpu().numpy()
@@ -854,8 +853,7 @@ class ParallelTrainer:
         """Hook called after each epoch; can be overridden by subclasses."""
         pass
 
-    def _compute_loss(self, 
-                     experiences: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict]:
+    def _compute_loss(self, experiences: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict]:
         """Compute policy loss with auxiliary losses"""
         obs = experiences['observations']
         actions = experiences['actions']
@@ -873,6 +871,7 @@ class ParallelTrainer:
             if isinstance(outputs, tuple):
                 logits, energy_pred, obs_pred = outputs[0], outputs[1], outputs[2]
             else: # Network doesn't return auxiliary outputs
+                raise
                 logits = outputs
                 energy_pred = obs_pred = None
             
@@ -897,9 +896,7 @@ class ParallelTrainer:
         else:
             # Standard forward pass without auxiliary tasks
             logits = self.agent.network(obs)
-            policy_loss, entropy = self.policy_loss_fn(
-                logits, actions, rewards, mask
-            )
+            policy_loss, entropy = self.policy_loss_fn(logits, actions, rewards, mask)
             
             total_loss = policy_loss
             
@@ -912,10 +909,9 @@ class ParallelTrainer:
         
         return total_loss, metrics
     
-    def _train_step(self, 
-                   experiences: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    def _train_step(self, experiences: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """Perform one training step"""
-        self.agent.network.train()
+        self.agent.network.train()  # Set the network in training mode.
         
         # Compute loss
         loss, metrics = self._compute_loss(experiences)
@@ -1576,9 +1572,23 @@ class AdaptiveParallelTrainer(ParallelTrainer):
 # FACTORY: Return appropriate trainer based on config
 # ============================================================================
 
-def Trainer(config: Dict[str, Any]):
-    """Factory function returning either ParallelTrainer or AdaptiveParallelTrainer"""
-    if config['training'].get('dynamic_complexity', False):
-        return AdaptiveParallelTrainer(config)
+#def Trainer(config: Dict[str, Any]):
+#    """Factory function returning either ParallelTrainer or AdaptiveParallelTrainer"""
+#    if config['training'].get('dynamic_complexity', False):
+#        return AdaptiveParallelTrainer(config)
+#    else:
+#        return ParallelTrainer(config)
+    
+
+from .reinforce_trainer import ReinforceTrainer
+from .ppo_trainer import PPOTrainer
+
+def Trainer(config: dict):
+    """Factory that returns the appropriate trainer based on algorithm."""
+    algo = config['training']['algorithm']
+    if algo == 'reinforce':
+        return ReinforceTrainer(config)
+    elif algo == 'ppo':
+        return PPOTrainer(config)
     else:
-        return ParallelTrainer(config)
+        raise ValueError(f"Unknown algorithm: {algo}")

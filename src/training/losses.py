@@ -1,111 +1,41 @@
 """
-Loss functions for RL training
+Loss functions for RL training – REINFORCE, auxiliary, and PPO.
 """
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional, Dict, Any  # Added missing imports
+from typing import Tuple, Dict, Optional
 
 
 class PolicyLoss:
-    """Policy gradient loss with entropy regularization"""
-    
-    def __init__(self, 
-                 gamma: float = 0.97,
-                 entropy_coef: float = 0.01,
+    """
+    REINFORCE with baseline (normalized returns) and entropy bonus.
+    This is the original method (your own).
+    """
+
+    def __init__(self, gamma: float = 0.97, entropy_coef: float = 0.01,
                  normalize_advantages: bool = True):
         self.gamma = gamma
         self.entropy_coef = entropy_coef
         self.normalize_advantages = normalize_advantages
-    
-    def __call__(self,
-                 logits: torch.Tensor,
-                 actions: torch.Tensor,
-                 rewards: torch.Tensor,
-                 mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Compute policy gradient loss
-        
-        Args:
-            logits: [B, T, A] action logits
-            actions: [B, T] action indices
-            rewards: [B, T] rewards
-            mask: [B, T] mask for valid steps (1=valid, 0=invalid)
-        
-        Returns:
-            loss: policy loss + entropy regularization
-            entropy: entropy value (for monitoring)
-        """
-        B, T, A = logits.shape
-        
-        # Compute action probabilities
-        log_probs = F.log_softmax(logits, dim=-1)  # [B, T, A]
-        
-        # Get log probability of taken actions
-        action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)  # [B, T]
-        
-        # Compute returns
-        returns = self._compute_returns(rewards, mask)
-        
-        # Compute advantages
-        advantages = self._compute_advantages(returns, mask)
-        
-        # Apply mask if provided
-        if mask is not None:
-            action_log_probs = action_log_probs * mask
-            advantages = advantages * mask
-            valid_count = mask.sum()
-        else:
-            valid_count = B * T
-        
-        # Policy loss
-        policy_loss = -(action_log_probs * advantages.detach()).sum() / valid_count
-        
-        # Entropy regularization
-        probs = F.softmax(logits, dim=-1)
-        entropy = -(probs * log_probs).sum(-1)  # [B, T]
-        
-        if mask is not None:
-            entropy = entropy * mask
-        
-        entropy_loss = -self.entropy_coef * entropy.sum() / valid_count
-        
-        # Total loss
-        total_loss = policy_loss + entropy_loss
-        
-        return total_loss, entropy.sum() / valid_count
-    
-    def _compute_returns(self, 
-                        rewards: torch.Tensor, 
-                        mask: Optional[torch.Tensor]) -> torch.Tensor:
-        """Compute discounted returns"""
+
+    def _compute_returns(self, rewards: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+        """Compute discounted returns (Monte Carlo) for each step."""
         B, T = rewards.shape
-        
         returns = torch.zeros_like(rewards)
         running_return = torch.zeros(B, device=rewards.device)
-        
-        # Compute returns from the end
         for t in reversed(range(T)):
             running_return = rewards[:, t] + self.gamma * running_return
             returns[:, t] = running_return
-            
-            # Apply mask if provided
             if mask is not None:
                 running_return = running_return * mask[:, t]
-        
         return returns
-    
-    def _compute_advantages(self,
-                           returns: torch.Tensor,
-                           mask: Optional[torch.Tensor]) -> torch.Tensor:
-        """Compute advantages (normalized by default)"""
+
+    def _compute_advantages(self, returns: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+        """Advantages = returns, then normalized across batch and time."""
         advantages = returns.clone()
-        
-        # Normalize advantages
         if self.normalize_advantages:
             if mask is not None:
-                # Only consider masked values for normalization
                 masked_returns = returns * mask
                 valid_count = mask.sum()
                 if valid_count > 0:
@@ -116,160 +46,180 @@ class PolicyLoss:
                 mean = returns.mean()
                 std = returns.std()
                 advantages = (advantages - mean) / (std + 1e-8)
-        
         return advantages
+
+    def __call__(self, logits: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor,
+                 mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute policy loss and entropy value.
+
+        Args:
+            logits: [B, T, A] action logits
+            actions: [B, T] action indices taken
+            rewards: [B, T] immediate rewards
+            mask: [B, T] where 1 indicates valid step (not terminal/padded)
+
+        Returns:
+            total_loss (scalar), mean_entropy (scalar)
+        """
+        B, T, A = logits.shape
+        log_probs = F.log_softmax(logits, dim=-1)
+        action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        returns = self._compute_returns(rewards, mask)
+        advantages = self._compute_advantages(returns, mask)
+
+        if mask is not None:
+            action_log_probs = action_log_probs * mask
+            advantages = advantages * mask
+            valid_count = mask.sum()
+        else:
+            valid_count = B * T
+
+        policy_loss = -(action_log_probs * advantages.detach()).sum() / valid_count
+
+        probs = F.softmax(logits, dim=-1)
+        entropy = -(probs * log_probs).sum(-1)
+        if mask is not None:
+            entropy = entropy * mask
+        entropy_loss = -self.entropy_coef * entropy.sum() / valid_count
+
+        total_loss = policy_loss + entropy_loss
+        return total_loss, entropy.sum() / valid_count
 
 
 class AuxiliaryLoss:
-    """Auxiliary losses for self-supervised learning"""
-    
-    def __init__(self,
-                 energy_coef: float = 0.1,
-                 obs_coef: float = 0.05,
-                 obs_prediction_type: str = 'classification'):
-        """
-        Args:
-            energy_coef: weight for energy prediction loss
-            obs_coef: weight for observation prediction loss
-            obs_prediction_type: 'classification' or 'regression'
-        """
+    """
+    Auxiliary losses for self-supervised learning:
+      - Energy prediction (MSE)
+      - Observation prediction (MSE on the 10-token vector)
+    """
+
+    def __init__(self, energy_coef: float = 0.1, obs_coef: float = 0.05):
         self.energy_coef = energy_coef
         self.obs_coef = obs_coef
-        self.obs_prediction_type = obs_prediction_type
-        
-        if obs_prediction_type == 'classification':
-            self.obs_criterion = nn.CrossEntropyLoss(reduction='mean')
-        else:  # regression
-            self.obs_criterion = nn.MSELoss(reduction='mean')
-    
-    def __call__(self,
-                 energy_pred: torch.Tensor,
-                 energy_target: torch.Tensor,
-                 obs_pred: torch.Tensor,
-                 obs_target: torch.Tensor,
+
+    def __call__(self, energy_pred: torch.Tensor, energy_target: torch.Tensor,
+                 obs_pred: torch.Tensor, obs_target: torch.Tensor,
                  mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
-        Compute auxiliary losses
-        
         Args:
-            energy_pred: [B, T, 1] predicted energy
-            energy_target: [B, T] actual energy
-            obs_pred: [B, T, obs_dim] predicted observations
-            obs_target: [B, T, obs_dim] actual observations
+            energy_pred: [B, T, 1] predicted energy (continuous)
+            energy_target: [B, T] true energy
+            obs_pred: [B, T, obs_dim] predicted observation tokens (treated as floats)
+            obs_target: [B, T, obs_dim] true observation tokens (as ints, cast to float)
             mask: [B, T] mask for valid steps
-        
-        Returns:
-            total auxiliary loss
         """
-        # Energy prediction loss
         energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
-
-        obs_loss = self.obs_criterion(obs_pred, obs_target)
-        
-        ## Observation prediction loss
-        #if self.obs_prediction_type == 'classification':
-        #    # For classification, obs_pred is [B, T, obs_dim, num_classes]
-        #    B, T, obs_dim, num_classes = obs_pred.shape
-        #    obs_pred = obs_pred.view(B * T * obs_dim, num_classes)
-        #    obs_target = obs_target.view(B * T * obs_dim).long()
-        #    obs_loss = self.obs_criterion(obs_pred, obs_target)
-        #else:
-        #    # For regression, both are [B, T, obs_dim]
-        #    obs_loss = self.obs_criterion(obs_pred, obs_target)
-        
-        # Apply mask if provided
+        obs_loss = F.mse_loss(obs_pred, obs_target.float())
         if mask is not None:
             valid_ratio = mask.sum() / (mask.numel() + 1e-8)
             energy_loss = energy_loss * valid_ratio
             obs_loss = obs_loss * valid_ratio
-        
-        # Weighted sum
-        total_loss = (self.energy_coef * energy_loss + self.obs_coef * obs_loss)
-        return total_loss
+        return self.energy_coef * energy_loss + self.obs_coef * obs_loss
 
 
-class ValueLoss:
-    """Value function loss"""
-    
-    def __init__(self, value_coef: float = 0.5):
-        self.value_coef = value_coef
-        self.criterion = nn.MSELoss()
-    
-    def __call__(self,
-                 value_pred: torch.Tensor,
-                 returns: torch.Tensor,
-                 mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        Compute value loss
-        
-        Args:
-            value_pred: [B, T, 1] predicted values
-            returns: [B, T] actual returns
-            mask: [B, T] mask for valid steps
-        
-        Returns:
-            value loss
-        """
-        value_loss = self.criterion(value_pred.squeeze(-1), returns)
-        
-        if mask is not None:
-            valid_ratio = mask.sum() / (mask.numel() + 1e-8)
-            value_loss = value_loss * valid_ratio
-        
-        return self.value_coef * value_loss
+class PPOLoss:
+    """
+    PPO clipped surrogate objective + value loss + entropy bonus.
+    Uses Generalized Advantage Estimation (GAE).
+    """
 
-
-class CompositeLoss:
-    """Composite loss combining policy, value, and auxiliary losses"""
-    
     def __init__(self,
-                 policy_loss: PolicyLoss,
-                 auxiliary_loss: Optional[AuxiliaryLoss] = None,
-                 value_loss: Optional[ValueLoss] = None):
-        self.policy_loss = policy_loss
-        self.auxiliary_loss = auxiliary_loss
-        self.value_loss = value_loss
-    
-    def __call__(self,
-                 logits: torch.Tensor,
-                 value_pred: Optional[torch.Tensor],
-                 aux_pred: Optional[Tuple[torch.Tensor, torch.Tensor]],
-                 actions: torch.Tensor,
-                 rewards: torch.Tensor,
-                 values: Optional[torch.Tensor],
-                 aux_targets: Optional[Tuple[torch.Tensor, torch.Tensor]],
-                 mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
+                 clip_epsilon: float = 0.2,
+                 value_coef: float = 0.5,
+                 entropy_coef: float = 0.01,
+                 gamma: float = 0.97,
+                 gae_lambda: float = 0.95):
+        self.clip_epsilon = clip_epsilon
+        self.value_coef = value_coef
+        self.entropy_coef = entropy_coef
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+
+    def compute_gae(self,
+                    rewards: torch.Tensor,   # [B, T]
+                    values: torch.Tensor,    # [B, T]
+                    dones: torch.Tensor,     # [B, T] (1 if terminal)
+                    mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Compute composite loss
-        
+        Compute Generalized Advantage Estimation (GAE) and returns.
+
+        Args:
+            rewards: [B, T]
+            values: [B, T]
+            dones: [B, T]  (1 for terminal state)
+            mask: [B, T] (1 for valid steps)
+
         Returns:
-            total_loss: combined loss
-            loss_dict: individual loss components
+            advantages: [B, T]
+            returns: [B, T] (target for value network)
         """
-        loss_dict = {}
-        
-        # Policy loss
-        policy_loss, entropy = self.policy_loss(logits, actions, rewards, mask)
-        loss_dict['policy_loss'] = policy_loss.item()
-        loss_dict['entropy'] = entropy.item()
-        
-        total_loss = policy_loss
-        
-        # Value loss
-        if self.value_loss is not None and value_pred is not None and values is not None:
-            returns = self.policy_loss._compute_returns(rewards, mask)
-            value_loss = self.value_loss(value_pred, returns, mask)
-            loss_dict['value_loss'] = value_loss.item()
-            total_loss = total_loss + value_loss
-        
-        # Auxiliary loss
-        if self.auxiliary_loss is not None and aux_pred is not None and aux_targets is not None:
-            energy_pred, obs_pred = aux_pred
-            energy_target, obs_target = aux_targets
-            aux_loss = self.auxiliary_loss(energy_pred, energy_target, obs_pred, obs_target, mask)
-            loss_dict['aux_loss'] = aux_loss.item()
-            total_loss = total_loss + aux_loss
-        
-        loss_dict['total_loss'] = total_loss.item()
-        
-        return total_loss, loss_dict
+        B, T = rewards.shape
+        advantages = torch.zeros_like(rewards)
+        returns = torch.zeros_like(rewards)
+        gae = 0.0
+        for t in reversed(range(T)):
+            if t == T - 1:
+                next_value = 0.0
+            else:
+                next_value = values[:, t+1] * mask[:, t+1] * (1 - dones[:, t+1])
+            delta = rewards[:, t] + self.gamma * next_value - values[:, t]
+            gae = delta + self.gamma * self.gae_lambda * (1 - dones[:, t]) * gae * mask[:, t]
+            advantages[:, t] = gae
+            returns[:, t] = advantages[:, t] + values[:, t]
+        return advantages, returns
+
+    def __call__(self,
+                 logits: torch.Tensor,          # [B, A]
+                 old_logits: torch.Tensor,      # [B, A]
+                 actions: torch.Tensor,         # [B]
+                 advantages: torch.Tensor,      # [B]
+                 returns: torch.Tensor,         # [B]
+                 values: torch.Tensor,          # [B]
+                 mask: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """
+        Compute PPO loss components (policy, value, entropy) for a mini-batch.
+
+        Args:
+            logits: current policy logits
+            old_logits: logits from before the update (used for ratio)
+            actions: taken actions
+            advantages: computed using GAE (already normalized)
+            returns: target values for value head
+            values: current value predictions
+            mask: mask for each sample (1 = valid)
+
+        Returns:
+            total_loss, metrics dict
+        """
+        # --- Policy loss (clipped surrogate) ---
+        log_probs = F.log_softmax(logits, dim=-1)
+        old_log_probs = F.log_softmax(old_logits, dim=-1)
+        action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        old_action_log_probs = old_log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        ratio = torch.exp(action_log_probs - old_action_log_probs)
+        clipped_ratio = torch.clamp(ratio, 1.0 - self.clip_epsilon, 1.0 + self.clip_epsilon)
+        policy_loss = -torch.min(ratio * advantages, clipped_ratio * advantages)
+
+        # --- Value loss (MSE) ---
+        value_loss = F.mse_loss(values, returns, reduction='none')
+
+        # --- Entropy bonus ---
+        probs = F.softmax(logits, dim=-1)
+        entropy = -(probs * log_probs).sum(-1)
+
+        # Apply mask and average
+        mask_float = mask.float()
+        policy_loss = (policy_loss * mask_float).sum() / mask_float.sum()
+        value_loss = (value_loss * mask_float).sum() / mask_float.sum()
+        entropy = (entropy * mask_float).sum() / mask_float.sum()
+
+        total_loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+
+        metrics = {
+            'loss': total_loss.item(),
+            'policy_loss': policy_loss.item(),
+            'value_loss': value_loss.item(),
+            'entropy': entropy.item(),
+        }
+        return total_loss, metrics

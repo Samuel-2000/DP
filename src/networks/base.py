@@ -1,74 +1,86 @@
 """
-Base classes for neural networks
+Base classes for neural networks – extended with optional value head and auxiliary tasks.
 """
 
 import torch
 import torch.nn as nn
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 import abc
 from src.core.utils import safe_load
 
 
 class BaseNetwork(nn.Module, abc.ABC):
-    """Base class for all networks"""
-    
-    def __init__(self, 
+    """Base class for all networks with optional value head and auxiliary tasks."""
+
+    def __init__(self,
                  observation_size: int = 10,
                  action_size: int = 6,
                  hidden_size: int = 512,
-                 use_auxiliary: bool = False):
+                 use_auxiliary: bool = False,
+                 use_value_head: bool = False):
         super().__init__()
-        
         self.observation_size = observation_size
         self.action_size = action_size
         self.hidden_size = hidden_size
         self.use_auxiliary = use_auxiliary
-        
+        self.use_value_head = use_value_head
+
+        if use_value_head:
+            self.value_head = nn.Sequential(
+                nn.Linear(hidden_size, hidden_size // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_size // 2, 1)
+            )
+
     @abc.abstractmethod
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass"""
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        Forward pass. Subclasses may accept:
+          - return_auxiliary: bool
+          - return_value: bool
+        Returns:
+          - logits (always)
+          - optionally (logits, energy_pred, obs_pred) if return_auxiliary
+          - optionally (logits, value) if return_value
+          - or combination
+        """
         pass
-    
+
     @abc.abstractmethod
     def reset_state(self, batch_size: int = 1):
-        """Reset internal state"""
+        """Reset any internal state (LSTM hidden, transformer memory, etc.)."""
         pass
-    
+
     def get_num_params(self) -> int:
-        """Get number of parameters"""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-    
+
     def save(self, path: str):
-        """Save model"""
         torch.save({
             'state_dict': self.state_dict(),
             'config': self.get_config(),
         }, path)
-    
+
     @classmethod
     def load(cls, path: str, device: str = 'auto'):
-        """Load model"""
         if device == 'auto':
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        
         checkpoint = safe_load(path, map_location=device)
         config = checkpoint['config']
-        
-        # Create instance
         instance = cls(**config)
         instance.load_state_dict(checkpoint['state_dict'])
         instance.to(device)
-        
         return instance
-    
+
     def get_config(self) -> Dict[str, Any]:
-        """Get network configuration"""
         return {
             'observation_size': self.observation_size,
             'action_size': self.action_size,
             'hidden_size': self.hidden_size,
             'use_auxiliary': self.use_auxiliary,
+            'use_value_head': self.use_value_head,
         }
+    
+
 
 
 class EmbeddingLayer(nn.Module):

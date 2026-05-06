@@ -6,10 +6,28 @@ NO UNUSED TOKENS - 0-18 (19 tokens total)
 from enum import IntEnum
 from typing import Dict, Tuple
 
+
+# ============================================================================
+# TILE TYPE CONSTANTS (for grid representation)
+# ============================================================================
+
+class TileType(IntEnum):
+    """Tile types for grid representation"""
+    EMPTY = 0
+    OBSTACLE = 1
+    FOOD_SOURCE = 2
+    FOOD = 3
+    AGENT = 4  # Internal only - agent never sees itself.
+    DOOR_CLOSED = 5
+    DOOR_OPEN = 6
+    BUTTON = 7
+    BUTTON_BROKEN = 8  # Internal only - agent sees as BUTTON
+
+
 # ============================================================================
 # OBSERVATION TOKENS (0-18) - ALL UNIQUE, NO GAPS!
 # ============================================================================
-
+# Observations must be unique even if they are at different output slots, because of recurrent network hidden state confusion.
 class ObservationTokens(IntEnum):
     """Observation token values (0-18) - ALL UNIQUE, NO GAPS!"""
     
@@ -40,7 +58,8 @@ class ObservationTokens(IntEnum):
     ENERGY_LEVEL_3 = 17  # 60-80%
     ENERGY_LEVEL_4 = 18  # 80-100%
 
-# Vocabulary size for embedding layer (0-18 = 19 tokens)
+ACTION_BOTTOM_VALUE = 7
+ENERGY_BOTTOM_VALUE = 14
 VOCAB_SIZE = 19
 MAX_TOKEN = ObservationTokens.ENERGY_LEVEL_4  # Should be 18
 
@@ -48,7 +67,7 @@ MAX_TOKEN = ObservationTokens.ENERGY_LEVEL_4  # Should be 18
 # Observation structure
 # ============================================================================
 
-# Always 10 tokens: 8 neighbors + last_action + energy
+# 10 tokens: 8 neighbors + last_action + energy
 OBSERVATION_SIZE = 10
 NEIGHBOR_POSITIONS = 8  # NW, N, NE, W, E, SW, S, SE
 ACTION_TOKEN_POSITION = 8
@@ -76,22 +95,6 @@ ENV_ACTIONS_START = 6
 NUM_ACTIONS = len(Actions)  # 6 agent actions
 ACTION_SIZE = NUM_ACTIONS
 TOTAL_ACTIONS = 7  # Agent actions (6) + environment START (1)
-
-# ============================================================================
-# TILE TYPE CONSTANTS (for grid representation)
-# ============================================================================
-
-class TileType(IntEnum):
-    """Tile types for grid representation"""
-    EMPTY = 0
-    OBSTACLE = 1
-    FOOD_SOURCE = 2
-    FOOD = 3
-    AGENT = 4
-    DOOR_CLOSED = 5
-    DOOR_OPEN = 6
-    BUTTON = 7
-    BUTTON_BROKEN = 8  # Internal only - agent sees as BUTTON
 
 # ============================================================================
 # MAPPING FUNCTIONS

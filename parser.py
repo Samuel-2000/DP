@@ -55,6 +55,22 @@ def parse_args():
     train_parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint file (.pt) to resume training")
 
 
+
+    train_parser.add_argument("--algorithm", type=str, default="ppo", choices=["reinforce", "ppo"],
+                            help="RL algorithm: 'reinforce' or 'ppo' (default)")
+
+    # PPO specific arguments (ignored if algorithm != 'ppo')
+    train_parser.add_argument("--rollout-steps", type=int, default=2048)
+    train_parser.add_argument("--ppo-epochs", type=int, default=4)
+    train_parser.add_argument("--mini-batch-size", type=int, default=64)
+    train_parser.add_argument("--clip-epsilon", type=float, default=0.2)
+    train_parser.add_argument("--value-coef", type=float, default=0.5)
+    train_parser.add_argument("--gae-lambda", type=float, default=0.95)
+
+
+
+
+
     # Dynamic complexity parameters (required only if --dynamic-complexity is set)
     train_parser.add_argument("--performance-window", type=int, default=None)
     train_parser.add_argument("--complexity-increase-threshold", type=float, default=None)
@@ -92,11 +108,13 @@ def parse_args():
 
         general_parser.add_argument("--dynamic-complexity", action="store_true", help="Test across all stages and complexities")
         
-        # Optional filters for dynamic complexity
-        general_parser.add_argument("--complexities", nargs="+", type=float, default=[0.0,0.25,0.5,0.75,1.0])
-        general_parser.add_argument("--stages", nargs="+", choices=["basic","doors","buttons","complex"], default=["basic","doors","buttons","complex"])
         general_parser.add_argument("--task-class", type=str, choices=["basic","doors","buttons","complex"], default=None)
         general_parser.add_argument("--complexity-level", type=float, default=None)
+
+        # Optional filters for dynamic complexity
+        general_parser.add_argument("--stages", nargs="+", choices=["basic","doors","buttons","complex"], default=["basic","doors","buttons","complex"])
+        general_parser.add_argument("--complexities", nargs="+", type=float, default=[0.0,0.25,0.5,0.75,1.0])
+        
         general_parser.add_argument("--n-doors", type=int, default=None)
         general_parser.add_argument("--n-buttons-per-door", type=int, choices=[0,1,2,3,4], default=None)
         general_parser.add_argument("--button-break-probability", type=float, default=None)
@@ -112,7 +130,7 @@ def parse_args():
 
     args = parser.parse_args()
 
-    # ---------- Post‑processing validation ----------
+    # ---------- Post-processing validation ----------
 
     required_env = []
 

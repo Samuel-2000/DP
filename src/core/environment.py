@@ -12,8 +12,8 @@ import math
 # Import your project's constants; adjust path as needed
 from .constants import (
     OBSERVATION_SIZE, VOCAB_SIZE,
-    Actions, NUM_ACTIONS, ENV_ACTIONS_START,
-    TileType, TILE_COLORS,
+    Actions, NUM_ACTIONS, ENV_ACTIONS_START, ACTION_BOTTOM_VALUE, ENERGY_BOTTOM_VALUE,
+    TileType, ObservationTokens, TILE_COLORS,
     TaskClass,
     FOOD_COUNT_MAX, FOOD_COUNT_MIN, MIN_FOOD_REGEN_TIME, MAX_FOOD_REGEN_TIME, FOOD_REGEN_GROWTH_FACTOR, 
     FOOD_INTERVAL_INDEX, FOOD_EXISTS_INDEX, FOOD_COLLECTION_COUNT_INDEX
@@ -435,9 +435,8 @@ def food_step(agent_y: int, agent_x: int, food_sources: np.ndarray, food_energy:
 
 
 @njit(cache=True)
-def get_observation_optimized(y: int, x: int, grid: np.ndarray, food_sources: np.ndarray,
-                              last_action: int, energy: float, food_positions_cache: np.ndarray,
-                              door_open_array: np.ndarray) -> np.ndarray:
+def get_observation_optimized(y: int, x: int, grid: np.ndarray, last_action: int, energy: float, 
+                              food_positions_cache: np.ndarray, door_open_array: np.ndarray) -> np.ndarray:
     obs = np.empty(10, dtype=np.int32)
     grid_h, grid_w = grid.shape
     offsets = np.array([[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]], dtype=np.int32)
@@ -447,42 +446,30 @@ def get_observation_optimized(y: int, x: int, grid: np.ndarray, food_sources: np
         if 0 <= ny < grid_h and 0 <= nx < grid_w:
             grid_val = grid[ny, nx]
             if food_positions_cache[ny, nx] > 0:
-                obs[i] = 3
+                obs[i] = ObservationTokens.NEIGHBOR_FOOD
+
             elif grid_val == TileType.DOOR_CLOSED or grid_val == TileType.DOOR_OPEN:
                 if door_open_array[ny, nx] == 1:
-                    obs[i] = 5
+                    obs[i] = ObservationTokens.NEIGHBOR_DOOR_OPEN
                 else:
-                    obs[i] = 4
-            elif grid_val == TileType.OBSTACLE:
-                obs[i] = 1
+                    obs[i] = ObservationTokens.NEIGHBOR_DOOR_CLOSED
+
             elif grid_val == TileType.BUTTON or grid_val == TileType.BUTTON_BROKEN:
-                obs[i] = 6
-            elif grid_val == TileType.FOOD_SOURCE:
-                obs[i] = 2
+                obs[i] = ObservationTokens.NEIGHBOR_BUTTON
+
             else:
-                obs[i] = 0
-        else:
-            obs[i] = 1
-    if last_action == Actions.LEFT:
-        obs[8] = 7
-    elif last_action == Actions.RIGHT:
-        obs[8] = 8
-    elif last_action == Actions.UP:
-        obs[8] = 9
-    elif last_action == Actions.DOWN:
-        obs[8] = 10
-    elif last_action == Actions.STAY:
-        obs[8] = 11
-    elif last_action == Actions.BUTTON:
-        obs[8] = 12
-    else:
-        obs[8] = 13
+                obs[i] = grid_val # EMPTY, OBSTACLE, FOOD_SOURCE, 
+
+        else: # out of bounds
+            obs[i] = ObservationTokens.NEIGHBOR_OBSTACLE
+
+    obs[8] = ACTION_BOTTOM_VALUE + last_action 
+
+
     energy_scaled = int((energy / 100.0) * 5)
-    if energy_scaled < 0:
-        energy_scaled = 0
-    elif energy_scaled > 4:
-        energy_scaled = 4
-    obs[9] = 14 + energy_scaled
+    energy_scaled = max(0, min(4, energy_scaled))
+    obs[9] = ENERGY_BOTTOM_VALUE + energy_scaled
+
     return obs
 
 
@@ -1129,7 +1116,7 @@ class GridMazeWorld(gym.Env):
             row = np.random.choice(size, p=probs)
             col = np.random.choice(size, p=probs)
 
-            # Single‑step repulsion from already placed foods
+            # Single-step repulsion from already placed foods
             dx_total = 0.0
             dy_total = 0.0
             for j in range(i):
@@ -1314,8 +1301,8 @@ class GridMazeWorld(gym.Env):
             obs = self._get_observation()
             return obs, 0.0, True, True, {}
 
-        if not (0 <= action < NUM_ACTIONS):
-            raise ValueError(f"Invalid action: {action}. Must be 0-{NUM_ACTIONS-1}")
+        # if not (0 <= action < NUM_ACTIONS):
+        #     raise ValueError(f"Invalid action: {action}. Must be 0-{NUM_ACTIONS-1}")
 
         # Update door states first
         self._update_door_states()
@@ -1406,8 +1393,7 @@ class GridMazeWorld(gym.Env):
 
     def _get_observation(self) -> np.ndarray:
         return get_observation_optimized(
-            int(self.agent_pos[0]), int(self.agent_pos[1]),
-            self.grid, self.food_sources, self.last_action,
+            int(self.agent_pos[0]), int(self.agent_pos[1]), self.grid, self.last_action,
             self.energy, self.food_positions_cache, self.door_open_array
         )
 
