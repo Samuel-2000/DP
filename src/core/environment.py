@@ -794,6 +794,13 @@ class GridMazeWorld(gym.Env):
                       (g == TileType.DOOR_OPEN))] = 1
         self._passable_mask = mask
 
+    def _set_passable(self, y: int, x: int, passable: bool):
+        """Incremental update of a single cell in the passable mask."""
+        self._passable_mask[y, x] = 1 if passable else 0
+
+    def _update_door_passability(self, door: Door):
+        """Update passability for a door based on its open state."""
+        self._set_passable(door.y, door.x, door.is_open)
 
     # ---------------- Door & button placement (optimized) ------------------
     def _can_place_door_with_buttons(self, y: int, x: int, grid_to_use: np.ndarray) -> Tuple[bool, List[Tuple[int, int]]]:
@@ -967,7 +974,7 @@ class GridMazeWorld(gym.Env):
                 break
 
         # After modifying grid with doors/buttons, update passable mask
-        self._update_passable_mask()
+        #self._update_passable_mask()
 
         if self.debug:
             print(f"Placed {placed_doors} doors and {len(self.buttons)} buttons total.")
@@ -1243,17 +1250,27 @@ class GridMazeWorld(gym.Env):
             if has_food:
                 self.food_positions_cache[y, x] = 1
 
+    #def _update_door_states(self):
+    #    for door in self.doors:
+    #        door.update(self.agent_pos)
+    #        if door.is_open:
+    #            self.grid[door.y, door.x] = TileType.DOOR_OPEN
+    #            self.door_open_array[door.y, door.x] = 1
+    #        else:
+    #            self.grid[door.y, door.x] = TileType.DOOR_CLOSED
+    #            self.door_open_array[door.y, door.x] = 0
+    #    # After doors change, update passable mask
+    #    self._update_passable_mask()
+
     def _update_door_states(self):
         for door in self.doors:
+            old_open = door.is_open
             door.update(self.agent_pos)
-            if door.is_open:
-                self.grid[door.y, door.x] = TileType.DOOR_OPEN
-                self.door_open_array[door.y, door.x] = 1
-            else:
-                self.grid[door.y, door.x] = TileType.DOOR_CLOSED
-                self.door_open_array[door.y, door.x] = 0
-        # After doors change, update passable mask
-        self._update_passable_mask()
+            if door.is_open != old_open:
+                self.grid[door.y, door.x] = TileType.DOOR_OPEN if door.is_open else TileType.DOOR_CLOSED
+                self.door_open_array[door.y, door.x] = 1 if door.is_open else 0
+                self._update_door_passability(door)   # <-- incremental update
+
 
     def _check_button_press(self, button_y: int, button_x: int) -> bool:
         for button in self.buttons:
@@ -1269,7 +1286,7 @@ class GridMazeWorld(gym.Env):
                         door.can_be_opened = False
                     # passable mask changed (button became broken -> tile type may be considered same passable class,
                     # but if you treat BUTTON_BROKEN differently adjust _update_passable_mask call placement)
-                    self._update_passable_mask()
+                    #self._update_passable_mask()
                     return False
                 if success and 0 <= button.door_idx < len(self.doors):
                     door = self.doors[button.door_idx]
@@ -1277,7 +1294,7 @@ class GridMazeWorld(gym.Env):
                         self.door_open_array[door.y, door.x] = 1
                         # door changed -> update grid / mask
                         self.grid[door.y, door.x] = TileType.DOOR_OPEN
-                        self._update_passable_mask()
+                        #self._update_passable_mask()
                         return True
                 break
         return False

@@ -1,5 +1,6 @@
 """
 PPO trainer with rollout buffer, GAE, and clipped surrogate objective.
+Optimized for speed: vectorized GAE, pre-allocated buffers, no_grad for rollout only.
 """
 
 import torch
@@ -12,13 +13,10 @@ from src.training.losses import PPOLoss
 
 class PPOTrainer(ParallelTrainerBase):
     def __init__(self, config):
-        # Force value head to be used (required for PPO)
         config['model']['use_value_head'] = True
         super().__init__(config)
 
         train_cfg = self.config['training']
-        max_steps = self.config['environment']['max_steps']
-        self.rollout_steps = self.batch_size * max_steps
         self.ppo_epochs = train_cfg['ppo_epochs']
         self.mini_batch_size = train_cfg['mini_batch_size']
         self.clip_epsilon = train_cfg['clip_epsilon']
@@ -26,6 +24,10 @@ class PPOTrainer(ParallelTrainerBase):
         self.entropy_coef = train_cfg['entropy_coef']
         self.gamma = train_cfg['gamma']
         self.gae_lambda = train_cfg['gae_lambda']
+
+        # Mixed precision (GPU only)
+        self.use_amp = self.device.type == 'cuda'
+        self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp) if self.use_amp else None
 
         self.ppo_loss_fn = PPOLoss(
             clip_epsilon=self.clip_epsilon,
@@ -36,70 +38,66 @@ class PPOTrainer(ParallelTrainerBase):
         )
 
     def _collect_rollout(self) -> dict:
-        """
-        Collect one full episode from each parallel environment.
-        Resets hidden state at the start of each episode.
-        Returns buffer with shape [B, T, ...] where T = episode length (same for all envs).
-        """
-        num_envs = self.batch_size
+        """Collect one full episode from each parallel environment. Optimized."""
         max_steps = self.vector_env.envs[0].max_steps
+        B = self.batch_size
+        device = self.device
 
-        # Full reset: new random grids for all environments
         obs_array, _ = self.vector_env.reset()
-        self.agent.reset()  # reset LSTM/transformer hidden state
-
-        obs = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)  # [B,1,K]
+        self.agent.reset()
 
         storage = {
-            'obs': [], 'actions': [], 'rewards': [], 'dones': [],
-            'values': [], 'logits': []
+            'obs': [None] * max_steps,
+            'actions': [None] * max_steps,
+            'rewards': [None] * max_steps,
+            'dones': [None] * max_steps,
+            'values': [None] * max_steps,
+            'logits': [None] * max_steps,
         }
         if self.agent.use_auxiliary:
-            storage['energies'] = []
+            storage['energies'] = [None] * max_steps
 
-        # Run until all environments are done (max_steps)
-        for step in range(max_steps):
-            with torch.no_grad():
+        obs = torch.tensor(obs_array, dtype=torch.long, device=device).unsqueeze(1)
+
+        # Inference only – no gradients needed
+        with torch.no_grad():
+            for step in range(max_steps):
                 outputs = self.agent.network(obs, return_auxiliary=self.agent.use_auxiliary, return_value=True)
-                logits = outputs[0]   # [B,1,A]
-                value = outputs[-1]   # [B,1,1]
+                logits = outputs[0].squeeze(1)
+                value = outputs[-1].squeeze(1)
 
-            logits = logits.squeeze(1)   # [B,A]
-            value = value.squeeze(1)     # [B,1]
+                dist = torch.distributions.Categorical(logits=logits)
+                actions = dist.sample()
 
-            dist = torch.distributions.Categorical(logits=logits)
-            actions = dist.sample()
+                storage['obs'][step] = obs.squeeze(1)
+                storage['actions'][step] = actions
+                storage['logits'][step] = logits
+                storage['values'][step] = value
 
-            storage['obs'].append(obs.squeeze(1))      # [B,K]
-            storage['actions'].append(actions)         # [B]
-            storage['logits'].append(logits)           # [B,A]
-            storage['values'].append(value)            # [B,1]
+                actions_np = actions.cpu().numpy()
+                obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
+                dones = terminated | truncated
 
-            actions_np = actions.cpu().numpy()
-            obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
-            dones = terminated | truncated
+                storage['rewards'][step] = torch.tensor(rewards, dtype=torch.float32, device=device)
+                storage['dones'][step] = torch.tensor(dones, dtype=torch.float32, device=device)
 
-            storage['rewards'].append(torch.tensor(rewards, dtype=torch.float32, device=self.device))
-            storage['dones'].append(torch.tensor(dones, dtype=torch.float32, device=self.device))
+                if self.agent.use_auxiliary:
+                    energies = [info.get('energy', 0.0) for info in infos]
+                    storage['energies'][step] = torch.tensor(energies, dtype=torch.float32, device=device)
 
-            if self.agent.use_auxiliary:
-                energies = [info.get('energy', 0.0) for info in infos]
-                storage['energies'].append(torch.tensor(energies, dtype=torch.float32, device=self.device))
+                obs = torch.tensor(obs_array, dtype=torch.long, device=device).unsqueeze(1)
 
-            obs = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+                if dones.all():
+                    for k in storage:
+                        storage[k] = storage[k][:step+1]
+                    break
 
-            # Stop if all environments are done (early termination)
-            if dones.all():
-                break
-
-        # Stack along time dimension -> [B, T, ...]
-        for k in ['obs', 'actions', 'rewards', 'dones', 'logits']:
+        for k in storage:
             storage[k] = torch.stack(storage[k], dim=1)
-        storage['values'] = torch.stack(storage['values'], dim=1).squeeze(-1)  # [B,T]
-        if 'energies' in storage:
-            storage['energies'] = torch.stack(storage['energies'], dim=1)  # [B,T]
 
-        mask = torch.ones_like(storage['rewards'])   # [B,T]
+        storage['values'] = storage['values'].squeeze(-1)   # [B, T]
+
+        mask = torch.ones_like(storage['rewards'])
 
         advantages, returns = self.ppo_loss_fn.compute_gae(
             storage['rewards'],
@@ -124,70 +122,88 @@ class PPOTrainer(ParallelTrainerBase):
         return experiences
 
     def _train_step(self, experiences: dict) -> dict:
-        """
-        Perform multiple PPO epochs over the collected rollout buffer,
-        using mini-batch gradient descent.
-        """
-        total_steps = experiences['observations'].shape[0]
-        indices = torch.randperm(total_steps)
-        metrics_sum = {}
+        """Perform multiple PPO epochs over the rollout buffer using mini-batches."""
+        B, T = experiences['observations'].shape[:2]
+        total_envs = B
+        indices = torch.randperm(total_envs, device=self.device)
 
         # Detach tensors that should not have gradients
         for key in ['old_logits', 'old_values', 'advantages', 'returns', 'mask']:
             experiences[key] = experiences[key].detach()
 
-        for epoch in range(self.ppo_epochs):
-            for start in range(0, total_steps, self.mini_batch_size):
-                end = min(start + self.mini_batch_size, total_steps)
-                idx = indices[start:end]
-                batch = {k: v[idx] for k, v in experiences.items()}
+        metrics_sum = {}
+        network = self.agent.network
+        optimizer = self.optimizer
+        scaler = self.scaler
+        use_amp = self.use_amp
 
-                # Do NOT reset the hidden state! We only detach it later.
-                obs = batch['observations']   # [B, T, K]
+        # Ensure network is in training mode for backward pass
+        network.train()
 
-                outputs = self.agent.network(obs, return_auxiliary=False, return_value=True)
-                logits = outputs[0]           # [B, T, A]
-                values = outputs[-1]          # [B, T, 1]
-                values = values.squeeze(-1)   # [B, T]
+        for _ in range(self.ppo_epochs):
+            for start in range(0, total_envs, self.mini_batch_size):
+                end = min(start + self.mini_batch_size, total_envs)
+                env_idx = indices[start:end]
+                batch = {k: v[env_idx] for k, v in experiences.items()}
 
-                loss, metrics = self.ppo_loss_fn(
-                    logits, batch['old_logits'], batch['actions'],
-                    batch['advantages'], batch['returns'], values, batch['mask']
-                )
+                self.agent.reset()   # resets LSTM/transformer memory to zeros
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.gradient_clipper.clip(self.agent.network.parameters())
-                self.optimizer.step()
+                # Forward pass – need gradients
+                if use_amp:
+                    with torch.amp.autocast('cuda'):
+                        outputs = network(batch['observations'], return_auxiliary=False, return_value=True)
+                        logits = outputs[0]
+                        values = outputs[-1].squeeze(-1)
+                        loss, metrics = self.ppo_loss_fn(
+                            logits, batch['old_logits'], batch['actions'],
+                            batch['advantages'], batch['returns'], values, batch['mask']
+                        )
+                else:
+                    outputs = network(batch['observations'], return_auxiliary=False, return_value=True)
+                    logits = outputs[0]
+                    values = outputs[-1].squeeze(-1)
+                    loss, metrics = self.ppo_loss_fn(
+                        logits, batch['old_logits'], batch['actions'],
+                        batch['advantages'], batch['returns'], values, batch['mask']
+                    )
 
-                # ----- CRITICAL FIX: Detach the hidden state after the update -----
-                if hasattr(self.agent.network, 'hidden_state') and self.agent.network.hidden_state is not None:
-                    h, c = self.agent.network.hidden_state
-                    self.agent.network.hidden_state = (h.detach(), c.detach())
-                # -----------------------------------------------------------------
+                optimizer.zero_grad(set_to_none=True)
+                if use_amp:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                else:
+                    loss.backward()
+
+                self.gradient_clipper.clip(network.parameters())
+
+                if use_amp:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+
+                # Detach hidden state to prevent backprop through time across updates
+                if hasattr(network, 'hidden_state') and network.hidden_state is not None:
+                    h, c = network.hidden_state
+                    network.hidden_state = (h.detach(), c.detach())
 
                 # Aggregate metrics
                 for k, v in metrics.items():
-                    metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_epochs / (total_steps / self.mini_batch_size)
+                    metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_epochs / (total_envs / self.mini_batch_size)
+
+        # Optionally set back to eval mode after training (but not necessary)
+        # network.eval()
 
         return metrics_sum
 
     def train(self):
-        """
-        Main training loop for PPO.
-        Each iteration:
-          - Collects a rollout of `rollout_steps`
-          - Updates policy and value network using several PPO epochs
-          - Tests and saves periodically
-        """
+        """Main training loop."""
         training_cfg = self.config['training']
         epochs = training_cfg['epochs']
         test_interval = training_cfg['test_interval']
         save_interval = training_cfg['save_interval']
-
         start_epoch = len(self.metrics['train_rewards'])
 
-        # Initial test
         if not self.metrics['test_epochs']:
             test_metrics = self._test_valid(epochs=4)
             self.metrics['test_epochs'].append(0)
@@ -200,12 +216,10 @@ class PPOTrainer(ParallelTrainerBase):
         start_time = time.time()
 
         for epoch in pbar:
-            # Collect a fixed-size rollout
             experiences = self._collect_rollout()
-            # Perform multiple PPO updates on this rollout
             train_metrics = self._train_step(experiences)
 
-            avg_reward = experiences['rewards'].sum(dim=1).mean().item()   # total reward per episode, averaged
+            avg_reward = experiences['rewards'].sum(dim=1).mean().item()
             self.metrics['train_rewards'].append(avg_reward)
             self.metrics['train_losses'].append(train_metrics.get('loss', 0))
             self.metrics.setdefault('policy_losses', []).append(train_metrics.get('policy_loss', 0))
@@ -243,7 +257,7 @@ class PPOTrainer(ParallelTrainerBase):
         print(f"\n{'='*80}\nPPO TRAINING SUMMARY\n{'='*80}")
         print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
         print(f"Best reward: {self.metrics['best_reward']:.2f}")
-        if self.dynamic:
+        if getattr(self, 'dynamic', False):
             print(f"Final stage: {self.complexity_manager.get_current_task_class()}")
             print(f"Final complexity: {self.complexity_manager.get_current_complexity():.2f}")
             print(f"Total adjustments: {self.complexity_manager.adjustments_made}")

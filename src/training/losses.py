@@ -119,89 +119,65 @@ class AuxiliaryLoss:
 
 
 class PPOLoss:
-    """
-    PPO clipped surrogate objective + value loss + entropy bonus.
-    Uses Generalized Advantage Estimation (GAE).
-    """
-
-    def __init__(self,
-                 clip_epsilon: float = 0.2,
-                 value_coef: float = 0.5,
-                 entropy_coef: float = 0.01,
-                 gamma: float = 0.97,
-                 gae_lambda: float = 0.95):
+    def __init__(self, clip_epsilon=0.2, value_coef=0.5, entropy_coef=0.01, gamma=0.97, gae_lambda=0.95):
         self.clip_epsilon = clip_epsilon
         self.value_coef = value_coef
         self.entropy_coef = entropy_coef
         self.gamma = gamma
         self.gae_lambda = gae_lambda
 
-    def compute_gae(self,
-                    rewards: torch.Tensor,   # [B, T]
-                    values: torch.Tensor,    # [B, T]
-                    dones: torch.Tensor,     # [B, T] (1 if terminal)
-                    mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def compute_gae(self, rewards, values, dones, mask):
         """
-        Compute Generalized Advantage Estimation (GAE) and returns.
-
-        Args:
-            rewards: [B, T]
-            values: [B, T]
-            dones: [B, T]  (1 for terminal state)
-            mask: [B, T] (1 for valid steps)
-
-        Returns:
-            advantages: [B, T]
-            returns: [B, T] (target for value network)
+        rewards, values, dones, mask: all [B, T] (2D)
+        Returns advantages, returns [B, T]
         """
         B, T = rewards.shape
-        advantages = torch.zeros_like(rewards)
-        returns = torch.zeros_like(rewards)
-        gae = 0.0
-        for t in reversed(range(T)):
-            if t == T - 1:
-                next_value = 0.0
-            else:
-                next_value = values[:, t+1] * mask[:, t+1] * (1 - dones[:, t+1])
-            delta = rewards[:, t] + self.gamma * next_value - values[:, t]
-            gae = delta + self.gamma * self.gae_lambda * (1 - dones[:, t]) * gae * mask[:, t]
+        device = rewards.device
+        gamma, gae_lambda = self.gamma, self.gae_lambda
+        gamma_lambda = gamma * gae_lambda
+
+        # TD error: δ_t = r_t + γ * V_{t+1} - V_t, with V_{T}=0
+        next_values = torch.cat([values[:, 1:], torch.zeros(B, 1, device=device)], dim=1)
+        delta = rewards + gamma * next_values - values
+        delta = delta * mask
+
+        advantages = torch.zeros_like(delta)
+        gae = torch.zeros(B, device=device)
+        for t in range(T - 1, -1, -1):
+            gae = delta[:, t] + gamma_lambda * (1 - dones[:, t]) * gae * mask[:, t]
             advantages[:, t] = gae
-            returns[:, t] = advantages[:, t] + values[:, t]
+
+        returns = advantages + values
         return advantages, returns
 
-    def __call__(self,
-                 logits: torch.Tensor,          # [B, A]
-                 old_logits: torch.Tensor,      # [B, A]
-                 actions: torch.Tensor,         # [B]
-                 advantages: torch.Tensor,      # [B]
-                 returns: torch.Tensor,         # [B]
-                 values: torch.Tensor,          # [B]
-                 mask: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def __call__(self, logits, old_logits, actions, advantages, returns, values, mask):
         """
-        Compute PPO loss components (policy, value, entropy) for a mini-batch.
-
-        Args:
-            logits: current policy logits
-            old_logits: logits from before the update (used for ratio)
-            actions: taken actions
-            advantages: computed using GAE (already normalized)
-            returns: target values for value head
-            values: current value predictions
-            mask: mask for each sample (1 = valid)
-
-        Returns:
-            total_loss, metrics dict
+        Handles both 2D [N, A] and 3D [B, T, A] inputs.
         """
+        # Flatten 3D to 2D for loss calculation
+        if logits.dim() == 3:
+            B, T, A = logits.shape
+            logits = logits.view(-1, A)
+            old_logits = old_logits.view(-1, A)
+            actions = actions.view(-1)
+            advantages = advantages.view(-1)
+            returns = returns.view(-1)
+            values = values.view(-1)
+            mask = mask.view(-1)
+        else:
+            B = logits.size(0)
+
         # --- Policy loss (clipped surrogate) ---
         log_probs = F.log_softmax(logits, dim=-1)
         old_log_probs = F.log_softmax(old_logits, dim=-1)
         action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
         old_action_log_probs = old_log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+
         ratio = torch.exp(action_log_probs - old_action_log_probs)
         clipped_ratio = torch.clamp(ratio, 1.0 - self.clip_epsilon, 1.0 + self.clip_epsilon)
         policy_loss = -torch.min(ratio * advantages, clipped_ratio * advantages)
 
-        # --- Value loss (MSE) ---
+        # --- Value loss ---
         value_loss = F.mse_loss(values, returns, reduction='none')
 
         # --- Entropy bonus ---
