@@ -10,6 +10,8 @@ import time
 from .parallel_trainer_base import ParallelTrainerBase
 from src.training.losses import PPOLoss
 
+from src.core.constants import OBSERVATION_SIZE
+
 
 class PPOTrainer(ParallelTrainerBase):
     def __init__(self, config):
@@ -25,9 +27,19 @@ class PPOTrainer(ParallelTrainerBase):
         self.gamma = train_cfg['gamma']
         self.gae_lambda = train_cfg['gae_lambda']
 
-        # Mixed precision (GPU only)
-        self.use_amp = self.device.type == 'cuda'
-        self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp) if self.use_amp else None
+        # Disable AMP – huge overhead due to .item() calls inside GradScaler
+        self.use_amp = False
+        self.scaler = None
+
+        # ---------- Pre-allocated tensors (avoids repeated GPU allocations) ----------
+        self.obs_tensor = torch.empty(
+            (self.batch_size, 1, OBSERVATION_SIZE),
+            dtype=torch.long, device=self.device
+        )
+        self.reward_tensor = torch.empty(self.batch_size, dtype=torch.float32, device=self.device)
+        self.done_tensor = torch.empty(self.batch_size, dtype=torch.float32, device=self.device)
+        self.action_buffer = np.zeros(self.batch_size, dtype=np.int64)   # for CPU transfer
+        # ----------------------------------------------------------------------------
 
         self.ppo_loss_fn = PPOLoss(
             clip_epsilon=self.clip_epsilon,
@@ -37,14 +49,19 @@ class PPOTrainer(ParallelTrainerBase):
             gae_lambda=self.gae_lambda
         )
 
+
     def _collect_rollout(self) -> dict:
-        """Collect one full episode from each parallel environment. Optimized."""
         max_steps = self.vector_env.envs[0].max_steps
         B = self.batch_size
         device = self.device
 
         obs_array, _ = self.vector_env.reset()
         self.agent.reset()
+
+        # Copy into pre-allocated tensor (non-blocking)
+        self.obs_tensor.copy_(
+            torch.from_numpy(obs_array).unsqueeze(1).to(device, non_blocking=True)
+        )
 
         storage = {
             'obs': [None] * max_steps,
@@ -57,44 +74,63 @@ class PPOTrainer(ParallelTrainerBase):
         if self.agent.use_auxiliary:
             storage['energies'] = [None] * max_steps
 
-        obs = torch.tensor(obs_array, dtype=torch.long, device=device).unsqueeze(1)
-
-        # Inference only – no gradients needed
         with torch.no_grad():
             for step in range(max_steps):
-                outputs = self.agent.network(obs, return_auxiliary=self.agent.use_auxiliary, return_value=True)
-                logits = outputs[0].squeeze(1)
-                value = outputs[-1].squeeze(1)
+                outputs = self.agent.network(
+                    self.obs_tensor,
+                    return_auxiliary=self.agent.use_auxiliary,
+                    return_value=True
+                )
+                logits = outputs[0].squeeze(1)      # [B, A]
+                value = outputs[-1].squeeze(1)      # [B]
 
-                dist = torch.distributions.Categorical(logits=logits)
-                actions = dist.sample()
+                # Sample actions without Categorical (avoids overhead)
+                probs = torch.softmax(logits, dim=-1)
+                actions = torch.multinomial(probs, 1).squeeze(-1)   # [B]
 
-                storage['obs'][step] = obs.squeeze(1)
+                # Store observations (clone because buffer is reused)
+                storage['obs'][step] = self.obs_tensor.squeeze(1).clone()
                 storage['actions'][step] = actions
                 storage['logits'][step] = logits
                 storage['values'][step] = value
 
-                #actions_np = actions.cpu().numpy()
-                self.action_buffer[:] = actions.cpu().numpy()
+                # Transfer actions to CPU using pre-allocated buffer
+                actions_cpu = actions.cpu().numpy()
+                self.action_buffer[:] = actions_cpu
                 actions_np = self.action_buffer
 
+                # Step environments
                 obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
                 dones = terminated | truncated
 
-                storage['rewards'][step] = torch.tensor(rewards, dtype=torch.float32, device=device)
-                storage['dones'][step] = torch.tensor(dones, dtype=torch.float32, device=device)
+                # Copy rewards into pre-allocated tensor and store a clone
+                self.reward_tensor.copy_(torch.from_numpy(rewards).to(device, non_blocking=True))
+                storage['rewards'][step] = self.reward_tensor.clone()   # CRITICAL: clone
 
+                # Copy dones into pre-allocated tensor and store a clone
+                self.done_tensor.copy_(torch.from_numpy(dones).to(device, non_blocking=True))
+                storage['dones'][step] = self.done_tensor.clone()       # CRITICAL: clone
+
+                # Auxiliary energy targets if needed
                 if self.agent.use_auxiliary:
                     energies = [info.get('energy', 0.0) for info in infos]
-                    storage['energies'][step] = torch.tensor(energies, dtype=torch.float32, device=device)
+                    # Ensure self.energy_tensor exists (add in __init__ if needed)
+                    if not hasattr(self, 'energy_tensor'):
+                        self.energy_tensor = torch.empty(B, dtype=torch.float32, device=device)
+                    self.energy_tensor.copy_(torch.from_numpy(np.array(energies)).to(device, non_blocking=True))
+                    storage['energies'][step] = self.energy_tensor.clone()   # CRITICAL: clone
 
-                obs = torch.tensor(obs_array, dtype=torch.long, device=device).unsqueeze(1)
+                # Prepare next observation
+                self.obs_tensor.copy_(torch.from_numpy(obs_array).unsqueeze(1).to(device, non_blocking=True))
 
+                # Early break if all environments are done
                 if dones.all():
+                    # Truncate storage to actual number of steps
                     for k in storage:
                         storage[k] = storage[k][:step+1]
                     break
 
+        # Stack all collected data into tensors
         for k in storage:
             storage[k] = torch.stack(storage[k], dim=1)
 
