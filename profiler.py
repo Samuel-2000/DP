@@ -87,7 +87,7 @@ class MinimalProfiler:
         collect = self._get_collect_method(trainer)
         train_step = self._get_train_method(trainer)
 
-        # Environment reset
+        # Environment full reset
         reset_times = []
         for _ in range(5):
             start = time.perf_counter()
@@ -95,6 +95,20 @@ class MinimalProfiler:
             reset_times.append(time.perf_counter() - start)
         reset_ms = np.mean(reset_times) * 1000
         reset_std = np.std(reset_times) * 1000
+
+        # Environment soft reset (on a single environment, after a full reset)
+        # Get a single environment instance from the vector env
+        single_env = trainer.vector_env.envs[0]
+        # Perform a full reset first to ensure clean state
+        single_env.reset(seed=42)
+        soft_reset_times = []
+        # Measure many soft resets (1000) for stable microsecond timing
+        for _ in range(1000):
+            start = time.perf_counter()
+            single_env.soft_reset()
+            soft_reset_times.append(time.perf_counter() - start)
+        soft_reset_us = np.mean(soft_reset_times) * 1e6
+        soft_reset_std = np.std(soft_reset_times) * 1e6
 
         # Experience collection
         coll_times = []
@@ -162,17 +176,18 @@ class MinimalProfiler:
             tm_std = np.std(tm_list) * 1e6
 
         print("\nComponent Timings (average ± std):")
-        print(f"  Environment reset   : {reset_ms:.1f} ± {reset_std:.1f} ms")
-        print(f"  Experience collection: {coll_mean:.3f} ± {coll_std:.3f} s  ({total_steps} steps, {total_steps/coll_mean:.0f} steps/s)")
-        print(f"  Training step       : {train_mean:.3f} ± {train_std:.3f} s")
+        print(f"  Environment full reset: {reset_ms:.1f} ± {reset_std:.1f} ms")
+        print(f"  Environment soft reset: {soft_reset_us:.1f} ± {soft_reset_std:.1f} µs")
+        print(f"  Experience collection : {coll_mean:.3f} ± {coll_std:.3f} s  ({total_steps} steps, {total_steps/coll_mean:.0f} steps/s)")
+        print(f"  Training step         : {train_mean:.3f} ± {train_std:.3f} s")
         if original_dtype != torch.float16:
-            print(f"  Network forward     : {fwd_ms:.2f} ± {fwd_std:.2f} ms")
+            print(f"  Network forward       : {fwd_ms:.2f} ± {fwd_std:.2f} ms")
         else:
-            print(f"  Network forward     : skipped (half precision)")
+            print(f"  Network forward       : skipped (half precision)")
         if door_us is not None:
-            print(f"  Door updates        : {door_us:.1f} ± {door_std:.1f} µs")
+            print(f"  Door updates          : {door_us:.1f} ± {door_std:.1f} µs")
         if tm_us is not None:
-            print(f"  Template matching   : {tm_us:.1f} ± {tm_std:.1f} µs")
+            print(f"  Template matching     : {tm_us:.1f} ± {tm_std:.1f} µs")
 
     def run_cprofile_and_show_top3(self, trainer):
         print("\n" + "=" * 80)

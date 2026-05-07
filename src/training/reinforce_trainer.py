@@ -9,7 +9,7 @@ import time
 import cv2
 from .parallel_trainer_base import ParallelTrainerBase
 from src.training.losses import PolicyLoss, AuxiliaryLoss
-
+import random
 
 class ReinforceTrainer(ParallelTrainerBase):
     """
@@ -40,8 +40,9 @@ class ReinforceTrainer(ParallelTrainerBase):
         Returns a dictionary with batched tensors.
         """
         max_steps = self.vector_env.envs[0].max_steps
+        self.agent.reset()
+
         if full_reset:
-            self.agent.reset()
             obs_array, _ = self.vector_env.reset()
         else:
             obs_array, _ = self.vector_env.soft_reset_all()
@@ -195,7 +196,7 @@ class ReinforceTrainer(ParallelTrainerBase):
                             current_config = new_config
                             full_reset = True
                         else:
-                            chosen_config = np.random.choice(self._grid_pool)
+                            chosen_config = random.choice(self._grid_pool)
                             if chosen_config == current_config:
                                 full_reset = False
                             else:
