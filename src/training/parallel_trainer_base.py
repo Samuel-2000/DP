@@ -235,6 +235,9 @@ class ParallelTrainerBase:
         self.base_seed = config['experiment']['seed']
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        # Preallocate a numpy buffer for actions to reduce CPU↔GPU transfers
+        
+
         seed_everything(self.base_seed)
 
         training_cfg = config['training']
@@ -243,6 +246,8 @@ class ParallelTrainerBase:
         self.grid_change_prob = training_cfg['grid_change_prob']
         self.update_per_episode = training_cfg['update_per_episode']
 
+        self.action_buffer = np.zeros(self.batch_size, dtype=np.int64)
+        
         # Dynamic complexity
         self.dynamic = training_cfg['dynamic_complexity']
         if self.dynamic:
@@ -462,7 +467,7 @@ class ParallelTrainerBase:
             test_env = VectorizedMazeEnv(num_envs=self.batch_size, env_config=test_env_config, base_seed=test_seed)
             max_steps = test_env.envs[0].max_steps
             obs_array, _ = test_env.reset()
-            obs_t = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+            obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
             rewards = np.zeros(self.batch_size)
             lengths = np.zeros(self.batch_size, dtype=int)
 
@@ -475,7 +480,7 @@ class ParallelTrainerBase:
                     logits = output.squeeze(1)
                     actions = logits.argmax(dim=-1).cpu().numpy()
                     obs_array, r, terminated, truncated, _ = test_env.step(actions)
-                    obs_t = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+                    obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
                     rewards += r
                     lengths += 1
                     if (terminated | truncated).all():

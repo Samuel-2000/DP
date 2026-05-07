@@ -7,10 +7,19 @@ import torch.nn.functional as F
 from typing import Tuple, Dict, Optional
 
 
+"""
+Loss functions for RL training – fully vectorized REINFORCE (no loops).
+"""
+
+import torch
+import torch.nn.functional as F
+from typing import Tuple, Optional
+
+
 class PolicyLoss:
     """
     REINFORCE with baseline (normalized returns) and entropy bonus.
-    This is the original method (your own).
+    Fully vectorized: no Python loops over time steps.
     """
 
     def __init__(self, gamma: float = 0.97, entropy_coef: float = 0.01,
@@ -19,73 +28,53 @@ class PolicyLoss:
         self.entropy_coef = entropy_coef
         self.normalize_advantages = normalize_advantages
 
-    def _compute_returns(self, rewards: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
-        """Compute discounted returns (Monte Carlo) for each step."""
-        B, T = rewards.shape
-        returns = torch.zeros_like(rewards)
-        running_return = torch.zeros(B, device=rewards.device)
-        for t in reversed(range(T)):
-            running_return = rewards[:, t] + self.gamma * running_return
-            returns[:, t] = running_return
-            if mask is not None:
-                running_return = running_return * mask[:, t]
+    def _compute_returns(self, rewards: torch.Tensor) -> torch.Tensor:
+        """
+        Vectorized discounted return computation.
+        rewards: [B, T] (assumes full episodes, no mask)
+        returns: [B, T] where returns[t] = sum_{k=0}^{T-t-1} gamma^k * reward_{t+k}
+        """
+        T = rewards.size(1)
+        # Create gamma powers: [gamma^{T-1}, gamma^{T-2}, ..., gamma^0]
+        gamma_pow = torch.pow(self.gamma, torch.arange(T - 1, -1, -1, device=rewards.device))
+        # Reverse rewards, multiply elementwise, cumsum, then reverse back
+        returns_rev = torch.cumsum(rewards.flip(dims=(1,)) * gamma_pow, dim=1)
+        returns = returns_rev.flip(dims=(1,))
         return returns
 
-    def _compute_advantages(self, returns: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
-        """Advantages = returns, then normalized across batch and time."""
-        advantages = returns.clone()
+    def _compute_advantages(self, returns: torch.Tensor) -> torch.Tensor:
+        advantages = returns
         if self.normalize_advantages:
-            if mask is not None:
-                masked_returns = returns * mask
-                valid_count = mask.sum()
-                if valid_count > 0:
-                    mean = masked_returns.sum() / valid_count
-                    std = torch.sqrt((masked_returns - mean).pow(2).sum() / valid_count + 1e-8)
-                    advantages = (advantages - mean) / (std + 1e-8)
-            else:
-                mean = returns.mean()
-                std = returns.std()
-                advantages = (advantages - mean) / (std + 1e-8)
+            # Normalize across all batch and time steps
+            mean = returns.mean()
+            std = returns.std(unbiased=False) + 1e-8
+            advantages = (advantages - mean) / std
         return advantages
 
     def __call__(self, logits: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor,
                  mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Compute policy loss and entropy value.
-
-        Args:
-            logits: [B, T, A] action logits
-            actions: [B, T] action indices taken
-            rewards: [B, T] immediate rewards
-            mask: [B, T] where 1 indicates valid step (not terminal/padded)
-
-        Returns:
-            total_loss (scalar), mean_entropy (scalar)
+        mask is ignored – provided for API compatibility only.
+        All episodes are assumed to be of full length (no terminal truncation).
         """
-        B, T, A = logits.shape
-        log_probs = F.log_softmax(logits, dim=-1)
-        action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
-        returns = self._compute_returns(rewards, mask)
-        advantages = self._compute_advantages(returns, mask)
+        # Compute log probs
+        log_probs = F.log_softmax(logits, dim=-1)                     # [B, T, A]
+        action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)  # [B, T]
 
-        if mask is not None:
-            action_log_probs = action_log_probs * mask
-            advantages = advantages * mask
-            valid_count = mask.sum()
-        else:
-            valid_count = B * T
+        # Returns and advantages (fully vectorized)
+        returns = self._compute_returns(rewards)                      # [B, T]
+        advantages = self._compute_advantages(returns)                # [B, T]
 
-        policy_loss = -(action_log_probs * advantages.detach()).sum() / valid_count
+        # Policy loss (mean over all (B,T))
+        policy_loss = -(action_log_probs * advantages.detach()).mean()
 
+        # Entropy bonus (mean over all batch and time)
         probs = F.softmax(logits, dim=-1)
-        entropy = -(probs * log_probs).sum(-1)
-        if mask is not None:
-            entropy = entropy * mask
-        entropy_loss = -self.entropy_coef * entropy.sum() / valid_count
+        entropy = -(probs * log_probs).sum(-1).mean()
+        entropy_loss = -self.entropy_coef * entropy
 
         total_loss = policy_loss + entropy_loss
-        return total_loss, entropy.sum() / valid_count
-
+        return total_loss, entropy
 
 class AuxiliaryLoss:
     """

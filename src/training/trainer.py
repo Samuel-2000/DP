@@ -814,7 +814,7 @@ class ParallelTrainer:
             obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
             
             # Convert to tensors, Store actions and rewards
-            next_obs_tensor = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+            next_obs_tensor = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
             all_next_obs.append(next_obs_tensor.clone())
             all_actions.append(actions)
             all_rewards.append(torch.tensor(rewards, dtype=torch.float32, device=self.device))
@@ -965,7 +965,7 @@ class ParallelTrainer:
             )
             max_steps = test_env.envs[0].max_steps
             obs_array, _ = test_env.reset()
-            obs_t = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+            obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
 
             rewards = np.zeros(self.batch_size)
             lengths = np.zeros(self.batch_size, dtype=int)
@@ -975,7 +975,7 @@ class ParallelTrainer:
                     logits = self.agent.network(obs_t).squeeze(1)
                     actions = logits.argmax(dim=-1).cpu().numpy()
                     obs_array, r, terminated, truncated, _ = test_env.step(actions)
-                    obs_t = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+                    obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
                     rewards += r
                     lengths += 1
                     if (terminated | truncated).all():

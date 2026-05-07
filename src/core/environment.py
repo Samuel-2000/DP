@@ -1,10 +1,12 @@
-# environment.py — Ultra‑fast soft reset
+# environment.py — Ultra‑fast soft reset with shared template matcher,
+# passable cache, and all latest micro‑optimisations.
+
 import numpy as np
 import cv2
 import gymnasium as gym
 from gymnasium import spaces
 from numba import njit, prange
-from typing import Tuple, Dict, Any, Optional, List, Set
+from typing import Tuple, Dict, Any, Optional, List
 from dataclasses import dataclass
 import math
 
@@ -13,12 +15,20 @@ from .constants import (
     Actions, NUM_ACTIONS, ENV_ACTIONS_START, ACTION_BOTTOM_VALUE, ENERGY_BOTTOM_VALUE,
     TileType, ObservationTokens, TILE_COLORS,
     TaskClass,
-    FOOD_COUNT_MAX, FOOD_COUNT_MIN, MIN_FOOD_REGEN_TIME, MAX_FOOD_REGEN_TIME, FOOD_REGEN_GROWTH_FACTOR,
+    FOOD_COUNT_MAX, FOOD_COUNT_MIN, MIN_FOOD_REGEN_TIME, MAX_FOOD_REGEN_TIME,
+    FOOD_REGEN_GROWTH_FACTOR,
     FOOD_INTERVAL_INDEX, FOOD_EXISTS_INDEX, FOOD_COLLECTION_COUNT_INDEX
 )
 
 # ------------------------------------------------------------
-# Numba helpers (unchanged)
+# GLOBAL OFFSETS (module scope) – used in observation
+# ------------------------------------------------------------
+_OBS_DY = np.array([-1, -1, -1, 0, 0, 1, 1, 1], dtype=np.int32)
+_OBS_DX = np.array([-1, 0, 1, -1, 1, -1, 0, 1], dtype=np.int32)
+
+
+# ------------------------------------------------------------
+# Numba helpers (unchanged except food_step)
 # ------------------------------------------------------------
 @njit(cache=True)
 def _label_components_numba_inplace(pass_mask: np.ndarray, labels: np.ndarray):
@@ -152,12 +162,29 @@ def add_obstacles_connectivity(grid: np.ndarray, n_obstacles: int) -> np.ndarray
 
 
 @njit(cache=True)
-def food_step(agent_y: int, agent_x: int, food_sources: np.ndarray, food_energy: float) -> float:
+def food_step(
+    agent_y: int,
+    agent_x: int,
+    food_sources: np.ndarray,
+    food_energy: float,
+    regrown_buffer: np.ndarray
+) -> Tuple[float, int]:
+    """
+    Returns (energy_gained, number_of_regrown_food_sources).
+    regrown_buffer must be large enough (size >= number of food sources).
+    """
     energy_gained = 0.0
+    regrown_count = 0
     n_food = food_sources.shape[0]
-    for i in prange(n_food):
-        y, x, time_left, has_food, collect_cnt = food_sources[i]
-        if agent_y == y and agent_x == x and has_food:
+
+    for i in range(n_food):
+        y = food_sources[i, 0]
+        x = food_sources[i, 1]
+        time_left = food_sources[i, FOOD_INTERVAL_INDEX]
+        has_food = food_sources[i, FOOD_EXISTS_INDEX]
+        collect_cnt = food_sources[i, FOOD_COLLECTION_COUNT_INDEX]
+
+        if agent_y == y and agent_x == x and has_food == 1:
             food_sources[i, FOOD_EXISTS_INDEX] = 0
             energy_gained += food_energy
             new_cnt = collect_cnt + 1
@@ -169,40 +196,53 @@ def food_step(agent_y: int, agent_x: int, food_sources: np.ndarray, food_energy:
             food_sources[i, FOOD_INTERVAL_INDEX] = time_left - 1
         elif time_left == 0:
             food_sources[i, FOOD_EXISTS_INDEX] = 1
-    return energy_gained
+            regrown_buffer[regrown_count] = i
+            regrown_count += 1
+
+    return energy_gained, regrown_count
 
 
 @njit(cache=True)
-def get_observation_optimized(y: int, x: int, static_grid: np.ndarray, last_action: int,
-                              energy: float, food_positions_cache: np.ndarray,
-                              door_open_array: np.ndarray, button_broken_array: np.ndarray) -> np.ndarray:
+def get_observation_optimized(
+    y: int,
+    x: int,
+    static_grid: np.ndarray,
+    last_action: int,
+    energy: float,
+    food_positions_cache: np.ndarray,
+    door_open_array: np.ndarray,
+    button_broken_array: np.ndarray
+) -> np.ndarray:
     obs = np.empty(10, dtype=np.int32)
-    grid_h, grid_w = static_grid.shape
-    offsets = np.array([[-1, -1], [-1, 0], [-1, 1],
-                        [0, -1],           [0, 1],
-                        [1, -1],  [1, 0],  [1, 1]], dtype=np.int32)
+    h = static_grid.shape[0]
+    w = static_grid.shape[1]
+
     for i in range(8):
-        ny = y + offsets[i, 0]
-        nx = x + offsets[i, 1]
-        if 0 <= ny < grid_h and 0 <= nx < grid_w:
-            tile = static_grid[ny, nx]
-            if food_positions_cache[ny, nx] > 0:
-                obs[i] = ObservationTokens.NEIGHBOR_FOOD
-            elif tile == TileType.DOOR_CLOSED:
-                if door_open_array[ny, nx] == 1:
-                    obs[i] = ObservationTokens.NEIGHBOR_DOOR_OPEN
-                else:
-                    obs[i] = ObservationTokens.NEIGHBOR_DOOR_CLOSED
-            elif tile == TileType.BUTTON:
-                obs[i] = ObservationTokens.NEIGHBOR_BUTTON
-            else:
-                obs[i] = tile
-        else:
+        ny = y + _OBS_DY[i]
+        nx = x + _OBS_DX[i]
+        if ny < 0 or ny >= h or nx < 0 or nx >= w:
             obs[i] = ObservationTokens.NEIGHBOR_OBSTACLE
+            continue
+        if food_positions_cache[ny, nx] > 0:
+            obs[i] = ObservationTokens.NEIGHBOR_FOOD
+            continue
+        tile = static_grid[ny, nx]
+        if tile == TileType.DOOR_CLOSED:
+            if door_open_array[ny, nx] == 1:
+                obs[i] = ObservationTokens.NEIGHBOR_DOOR_OPEN
+            else:
+                obs[i] = ObservationTokens.NEIGHBOR_DOOR_CLOSED
+        elif tile == TileType.BUTTON:
+            obs[i] = ObservationTokens.NEIGHBOR_BUTTON
+        else:
+            obs[i] = tile
 
     obs[8] = ACTION_BOTTOM_VALUE + last_action
-    energy_scaled = int((energy / 100.0) * 5)
-    energy_scaled = max(0, min(4, energy_scaled))
+    energy_scaled = int(energy * 0.05)   # 0‑100 → 0‑4, faster than division
+    if energy_scaled < 0:
+        energy_scaled = 0
+    elif energy_scaled > 4:
+        energy_scaled = 4
     obs[9] = ENERGY_BOTTOM_VALUE + energy_scaled
     return obs
 
@@ -288,9 +328,9 @@ class Door:
     is_open: bool = False
     timer: int = 0
 
-    def update(self, agent_pos: Optional[np.ndarray] = None):
-        if agent_pos is not None and len(agent_pos) >= 2:
-            agent_y, agent_x = int(agent_pos[0]), int(agent_pos[1])
+    def update(self, agent_pos: Optional[Tuple[int, int]] = None):
+        if agent_pos is not None:
+            agent_y, agent_x = agent_pos
             if agent_y == self.y and agent_x == self.x:
                 if self.is_open:
                     self.timer = 0
@@ -333,7 +373,7 @@ class Button:
 
 
 # ------------------------------------------------------------
-# Template matching (unchanged)
+# Template matching (shared instance)
 # ------------------------------------------------------------
 class TemplateNode:
     __slots__ = ('split_pos', 'pass_child', 'obs_child', 'templates', 'is_leaf')
@@ -475,10 +515,38 @@ class FastTemplateMatcher:
 
 
 # ------------------------------------------------------------
-# GridMazeWorld – ultra‑fast soft reset (no full‑grid scans)
+# GridMazeWorld – all optimizations integrated
 # ------------------------------------------------------------
 class GridMazeWorld(gym.Env):
     _ring_offsets_cache = {}
+    _shared_template_matcher = None
+    _shared_templates_list = None
+
+    @classmethod
+    def _get_templates_list(cls):
+        if cls._shared_templates_list is None:
+            templates_3x3 = [
+                np.array([[-1,  0, -1], [ 1,  0,  1], [-1,  0, -1]], dtype=np.int8),
+                np.array([[-1,  1, -1], [ 0,  0,  0], [-1,  1, -1]], dtype=np.int8),
+                np.array([[-1,  0,  1], [ 0,  0,  0], [ 1,  0, -1]], dtype=np.int8),
+                np.array([[ 1,  0, -1], [ 0,  0,  0], [-1,  0,  1]], dtype=np.int8),
+                np.array([[-1,  1, -1], [ 0,  0, -1], [ 1,  0, -1]], dtype=np.int8),
+                np.array([[-1, -1, -1], [ 0,  0,  1], [ 1,  0, -1]], dtype=np.int8),
+                np.array([[-1,  0,  1], [ 1,  0,  0], [-1, -1, -1]], dtype=np.int8),
+                np.array([[-1,  0,  1], [-1,  0,  0], [-1,  1, -1]], dtype=np.int8),
+                np.array([[-1,  1, -1], [-1,  0,  0], [-1,  0,  1]], dtype=np.int8),
+                np.array([[-1, -1, -1], [ 1,  0,  0], [-1,  0,  1]], dtype=np.int8),
+                np.array([[ 1,  0, -1], [ 0,  0, -1], [-1,  1, -1]], dtype=np.int8),
+                np.array([[ 1,  0, -1], [ 0,  0,  1], [-1, -1, -1]], dtype=np.int8)
+            ]
+            cls._shared_templates_list = [t.flatten() for t in templates_3x3]
+        return cls._shared_templates_list
+
+    @classmethod
+    def get_template_matcher(cls, max_depth=4):
+        if cls._shared_template_matcher is None:
+            cls._shared_template_matcher = FastTemplateMatcher(cls._get_templates_list(), max_depth)
+        return cls._shared_template_matcher
 
     @classmethod
     def _get_ring_offsets(cls, grid_size: int):
@@ -530,16 +598,20 @@ class GridMazeWorld(gym.Env):
         self.n_obstacles = int((grid_size - 2) ** 2 * obstacle_fraction)
 
         self.action_space = spaces.Discrete(NUM_ACTIONS)
-        self.observation_space = spaces.Box(low=0, high=VOCAB_SIZE - 1, shape=(OBSERVATION_SIZE,), dtype=np.int32)
+        self.observation_space = spaces.Box(low=0, high=VOCAB_SIZE-1, shape=(OBSERVATION_SIZE,), dtype=np.int32)
 
-        # Mutable state (will be rebuilt in reset)
+        # Mutable state
         self.grid = None
         self.static_grid = None
         self.food_sources = None
         self.food_positions_cache = None
         self.door_open_array = None
         self.button_broken_array = None
-        self.agent_pos = None
+
+        # Agent position (scalars, not numpy array)
+        self.agent_y = 0
+        self.agent_x = 0
+
         self.energy = None
         self.steps = None
         self.done = None
@@ -550,8 +622,6 @@ class GridMazeWorld(gym.Env):
         # Cached data for soft reset
         self._empty_cells: List[Tuple[int, int]] = []
         self._food_coords: List[Tuple[int, int]] = []
-
-        self.static_grid = None
         self._spawn_cells = None
         self._food_coords = None
         self._door_coords = None
@@ -559,14 +629,18 @@ class GridMazeWorld(gym.Env):
         self._info = {}
         self._regen_buffer = np.empty(FOOD_COUNT_MAX, dtype=np.int32)
 
-        self.template_matcher = FastTemplateMatcher(self._templates_flat_list(), max_depth=4)
-        self._door_check_offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-        self._passable_mask = np.zeros((self.grid_size, self.grid_size), dtype=np.uint8)   # only used during generation
+        # Template matcher (shared)
+        self.template_matcher = self.get_template_matcher(max_depth=4)
+        self._door_check_offsets = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
+        self._passable_mask = np.zeros((self.grid_size, self.grid_size), dtype=np.uint8)
         self._labels = np.zeros((self.grid_size, self.grid_size), dtype=np.int32)
         self.colors = TILE_COLORS
         self.debug = False
-        self._info = {}                       # reusable info dict
+        self._passable_cache = None
 
+        # Cached counters
+        self._n_doors_active = 0
+        self._n_buttons_working = 0
 
     def _adjust_parameters_by_task_class(self):
         if self.task_class == TaskClass.BASIC:
@@ -593,38 +667,9 @@ class GridMazeWorld(gym.Env):
             if self.button_break_probability is None:
                 self.button_break_probability = self.complexity_level * 0.3
 
-    def _templates_flat_list(self) -> List[np.ndarray]:
-        templates_3x3 = [
-            np.array([[-1,  0, -1], [ 1,  0,  1], [-1,  0, -1]], dtype=np.int8),
-            np.array([[-1,  1, -1], [ 0,  0,  0], [-1,  1, -1]], dtype=np.int8),
-            np.array([[-1,  0,  1], [ 0,  0,  0], [ 1,  0, -1]], dtype=np.int8),
-            np.array([[ 1,  0, -1], [ 0,  0,  0], [-1,  0,  1]], dtype=np.int8),
-            np.array([[-1,  1, -1], [ 0,  0, -1], [ 1,  0, -1]], dtype=np.int8),
-            np.array([[-1, -1, -1], [ 0,  0,  1], [ 1,  0, -1]], dtype=np.int8),
-            np.array([[-1,  0,  1], [ 1,  0,  0], [-1, -1, -1]], dtype=np.int8),
-            np.array([[-1,  0,  1], [-1,  0,  0], [-1,  1, -1]], dtype=np.int8),
-            np.array([[-1,  1, -1], [-1,  0,  0], [-1,  0,  1]], dtype=np.int8),
-            np.array([[-1, -1, -1], [ 1,  0,  0], [-1,  0,  1]], dtype=np.int8),
-            np.array([[ 1,  0, -1], [ 0,  0, -1], [-1,  1, -1]], dtype=np.int8),
-            np.array([[ 1,  0, -1], [ 0,  0,  1], [-1, -1, -1]], dtype=np.int8)
-        ]
-        return [t.flatten() for t in templates_3x3]
-
-    def _is_passable(self, y: int, x: int) -> bool:
-        tile = self.static_grid[y, x]
-        if tile == TileType.OBSTACLE:
-            return False
-        if tile == TileType.DOOR_CLOSED:
-            return self.door_open_array[y, x] == 1
-        return True
-
-    def _can_move_to(self, y: int, x: int) -> bool:
-        if not (0 <= y < self.grid_size and 0 <= x < self.grid_size):
-            return False
-        return self._is_passable(y, x)
-
-    # ---------- Generation helpers (unchanged) ----------
+    # ---------- Generation helpers (unchanged except using scalars) ----------
     def _init_food_sources(self):
+        # (unchanged – uses self.grid, self.food_sources, etc.)
         rng = np.random
         n_food = self.n_food_sources
         empty_cells = np.argwhere(self.grid == TileType.EMPTY)
@@ -662,7 +707,7 @@ class GridMazeWorld(gym.Env):
             take = min(n_food - pos, len(spread_avail))
             if take > 0:
                 part = spread_avail[:take]
-                chosen[pos:pos + take] = part
+                chosen[pos:pos+take] = part
                 used[part] = True
                 pos += take
         if pos < n_food:
@@ -846,46 +891,53 @@ class GridMazeWorld(gym.Env):
     def _manhattan_distance(self, a_y: int, a_x: int, b_y: int, b_x: int) -> int:
         return abs(a_y - b_y) + abs(a_x - b_x)
 
-
-
-
     def _cache_reset_state(self):
-        # Freeze the generated world layout.
-        # IMPORTANT: use copy(), not aliasing.
         self.static_grid = self.grid.copy()
-
-        # Cache spawn cells once.
         spawn_cells = np.argwhere(self.static_grid == TileType.EMPTY)
         if len(spawn_cells) == 0:
             spawn_cells = np.argwhere(self.static_grid != TileType.OBSTACLE)
         self._spawn_cells = spawn_cells.astype(np.int32, copy=False)
 
-        # Cache food coordinates once.
         if self.food_sources is not None and self.food_sources.shape[0] > 0:
             self._food_coords = self.food_sources[:, :2].astype(np.int32, copy=True)
         else:
-            self._food_coords = np.empty((0, 2), dtype=np.int32)
+            self._food_coords = np.empty((0,2), dtype=np.int32)
 
-        # Cache door/button coordinates once.
         if self.doors:
             self._door_coords = np.array([(d.y, d.x) for d in self.doors], dtype=np.int32)
         else:
-            self._door_coords = np.empty((0, 2), dtype=np.int32)
+            self._door_coords = np.empty((0,2), dtype=np.int32)
 
         if self.buttons:
             self._button_coords = np.array([(b.y, b.x) for b in self.buttons], dtype=np.int32)
         else:
-            self._button_coords = np.empty((0, 2), dtype=np.int32)
+            self._button_coords = np.empty((0,2), dtype=np.int32)
+
+        self._update_passable_cache()
+
+    def _update_passable_cache(self):
+        if self.static_grid is None:
+            return
+        not_obstacle = (self.static_grid != TileType.OBSTACLE)
+        door_open = (self.door_open_array == 1)
+        door_closed = (self.static_grid == TileType.DOOR_CLOSED)
+        passable = not_obstacle & (~door_closed | door_open)
+        self._passable_cache = passable
+
+    def _is_passable(self, y: int, x: int) -> bool:
+        return self._passable_cache[y, x]
+
+    def _can_move_to(self, y: int, x: int) -> bool:
+        return (0 <= y < self.grid_size and 0 <= x < self.grid_size and self._passable_cache[y, x])
 
     # ------------------------------------------------------------
-    # reset() – builds the whole world and caches everything
+    # reset()
     # ------------------------------------------------------------
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         super().reset(seed=seed)
         if seed is not None:
             np.random.seed(seed)
 
-        # Build the world once.
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=np.uint8)
         self.grid[0, :] = TileType.OBSTACLE
         self.grid[-1, :] = TileType.OBSTACLE
@@ -899,23 +951,24 @@ class GridMazeWorld(gym.Env):
 
         self._init_food_sources()
         self._init_doors_and_buttons()
-
-        # Cache all reset-time data once.
         self._cache_reset_state()
 
-        # Spawn agent using cached spawn cells.
         spawn_idx = np.random.randint(self._spawn_cells.shape[0])
-        self.agent_pos = self._spawn_cells[spawn_idx].copy()
+        self.agent_y = int(self._spawn_cells[spawn_idx, 0])
+        self.agent_x = int(self._spawn_cells[spawn_idx, 1])
 
         self.energy = self.initial_energy
         self.steps = 0
         self.done = False
         self.last_action = ENV_ACTIONS_START
 
+        self._n_doors_active = len(self.doors)
+        self._n_buttons_working = len(self.buttons)
+
         info = self._info
         info["energy"] = self.energy
         info["steps"] = self.steps
-        info["position"] = self.agent_pos.copy()
+        info["position"] = np.array([self.agent_y, self.agent_x], dtype=np.int32)
         info["task_class"] = self.task_class
         info["complexity_level"] = self.complexity_level
         info["n_doors"] = len(self.doors)
@@ -924,61 +977,53 @@ class GridMazeWorld(gym.Env):
         return self._get_observation(), info
 
     # ------------------------------------------------------------
-    # soft_reset() – ultra‑fast, O(n_food + n_doors + n_buttons)
+    # soft_reset()
     # ------------------------------------------------------------
     def soft_reset(self, seed: Optional[int] = None) -> Tuple[np.ndarray, Dict]:
         if seed is not None:
             np.random.seed(seed)
 
-        # Agent respawn from cached spawn cells.
         spawn_idx = np.random.randint(self._spawn_cells.shape[0])
-        self.agent_pos[:] = self._spawn_cells[spawn_idx]
+        self.agent_y = int(self._spawn_cells[spawn_idx, 0])
+        self.agent_x = int(self._spawn_cells[spawn_idx, 1])
 
         self.energy = self.initial_energy
         self.steps = 0
         self.done = False
         self.last_action = ENV_ACTIONS_START
 
-        # Reset food state without touching the whole grid.
         if self.food_sources is not None and self.food_sources.shape[0] > 0:
             n = self.food_sources.shape[0]
-
-            self._regen_buffer[:n] = np.random.randint(
-                MIN_FOOD_REGEN_TIME,
-                MAX_FOOD_REGEN_TIME,
-                size=n,
-            )
-
+            self._regen_buffer[:n] = np.random.randint(MIN_FOOD_REGEN_TIME, MAX_FOOD_REGEN_TIME, size=n)
             self.food_sources[:, FOOD_INTERVAL_INDEX] = self._regen_buffer[:n]
             self.food_sources[:, FOOD_EXISTS_INDEX] = 1
             self.food_sources[:, FOOD_COLLECTION_COUNT_INDEX] = 0
-
-            # Restore only the food cells to "exists".
             if self._food_coords.shape[0] > 0:
                 ys = self._food_coords[:, 0]
                 xs = self._food_coords[:, 1]
                 self.food_positions_cache[ys, xs] = 1
 
-        # Reset doors with vectorized array updates.
         if self._door_coords.shape[0] > 0:
             self.door_open_array[self._door_coords[:, 0], self._door_coords[:, 1]] = 0
-
         for door in self.doors:
             door.is_open = False
             door.timer = 0
             door.can_be_opened = True
 
-        # Reset buttons with vectorized array updates.
         if self._button_coords.shape[0] > 0:
             self.button_broken_array[self._button_coords[:, 0], self._button_coords[:, 1]] = 0
-
         for button in self.buttons:
             button.is_broken = False
+
+        self._update_passable_cache()
+
+        self._n_doors_active = len(self.doors)
+        self._n_buttons_working = len(self.buttons)
 
         info = self._info
         info["energy"] = self.energy
         info["steps"] = self.steps
-        info["position"] = self.agent_pos
+        info["position"] = np.array([self.agent_y, self.agent_x], dtype=np.int32)
         info["task_class"] = self.task_class
         info["complexity_level"] = self.complexity_level
         info["n_doors"] = len(self.doors)
@@ -987,14 +1032,18 @@ class GridMazeWorld(gym.Env):
         return self._get_observation(), info
 
     # ------------------------------------------------------------
-    # Step, door updates, button press (unchanged apart from using static_grid)
+    # Step, door updates, button press
     # ------------------------------------------------------------
     def _update_door_states(self):
+        changed = False
         for door in self.doors:
             old_open = door.is_open
-            door.update(self.agent_pos)
+            door.update((self.agent_y, self.agent_x))
             if door.is_open != old_open:
                 self.door_open_array[door.y, door.x] = 1 if door.is_open else 0
+                changed = True
+        if changed:
+            self._update_passable_cache()
 
     def _check_button_press(self, button_y: int, button_x: int) -> bool:
         for button in self.buttons:
@@ -1004,22 +1053,25 @@ class GridMazeWorld(gym.Env):
                 success = button.press()
                 if button.is_broken:
                     self.button_broken_array[button_y, button_x] = 1
+                    self._n_buttons_working -= 1
                     door = self.doors[button.door_idx]
                     other_buttons_working = any(b for b in self.buttons if b.door_idx == button.door_idx and not b.is_broken)
                     if not other_buttons_working:
                         door.can_be_opened = False
+                        self._n_doors_active -= 1
                     return False
                 if success and 0 <= button.door_idx < len(self.doors):
                     door = self.doors[button.door_idx]
                     if door.open():
                         self.door_open_array[door.y, door.x] = 1
+                        self._update_passable_cache()
                         return True
                 break
         return False
 
     def _get_adjacent_button_positions(self, y: int, x: int) -> List[Tuple[int, int]]:
         adjacent = []
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)]:
+        for dy, dx in [(-1,0),(1,0),(0,-1),(0,1),(0,0)]:
             ny, nx = y + dy, x + dx
             if 0 <= ny < self.grid_size and 0 <= nx < self.grid_size:
                 if self.static_grid[ny, nx] == TileType.BUTTON:
@@ -1034,11 +1086,10 @@ class GridMazeWorld(gym.Env):
 
         button_pressed = False
         moved = False
-        y, x = self.agent_pos
+        y, x = self.agent_y, self.agent_x
 
         if action == Actions.BUTTON:
-            adjacent_buttons = self._get_adjacent_button_positions(y, x)
-            for by, bx in adjacent_buttons:
+            for by, bx in self._get_adjacent_button_positions(y, x):
                 if self._check_button_press(by, bx):
                     button_pressed = True
                     break
@@ -1058,13 +1109,23 @@ class GridMazeWorld(gym.Env):
                     y += 1
 
         if moved:
-            self.agent_pos = np.array([y, x])
+            self.agent_y, self.agent_x = y, x
 
         energy_gained = 0.0
         if moved:
-            energy_gained = food_step(y, x, self.food_sources, self.food_energy)
+            # Use the regrown buffer – allocate once (size = food_sources.shape[0])
+            if not hasattr(self, '_regrown_buffer') or self._regrown_buffer.size < self.food_sources.shape[0]:
+                self._regrown_buffer = np.zeros(self.food_sources.shape[0], dtype=np.int32)
+            energy_gained, regrown_cnt = food_step(
+                y, x, self.food_sources, self.food_energy, self._regrown_buffer
+            )
             if energy_gained > 0:
                 self.food_positions_cache[y, x] = 0
+            for idx in range(regrown_cnt):
+                i = self._regrown_buffer[idx]
+                yf = self.food_sources[i, 0]
+                xf = self.food_sources[i, 1]
+                self.food_positions_cache[yf, xf] = 1
 
         self.energy = (self.energy * self.energy_decay + energy_gained - self.energy_per_step)
         self.energy = max(0.0, min(self.energy, 100.0))
@@ -1083,33 +1144,30 @@ class GridMazeWorld(gym.Env):
         if self.energy < 10:
             reward -= 0.1
 
-        if self.steps % 2 == 0:
-            self._update_food_cache()
-
         obs = self._get_observation()
         info = {
             'energy': self.energy,
             'steps': self.steps,
-            'position': self.agent_pos.copy(),
+            'position': np.array([self.agent_y, self.agent_x], dtype=np.int32),
             'food_collected': energy_gained > 0,
             'button_pressed': button_pressed,
             'action_taken': action,
             'task_class': self.task_class,
             'complexity_level': self.complexity_level,
-            'n_doors_active': sum(1 for d in self.doors if d.can_be_opened),
-            'n_buttons_working': sum(1 for b in self.buttons if not b.is_broken)
+            'n_doors_active': self._n_doors_active,
+            'n_buttons_working': self._n_buttons_working
         }
         return obs, reward, terminated, truncated, info
 
     def _get_observation(self) -> np.ndarray:
         return get_observation_optimized(
-            int(self.agent_pos[0]), int(self.agent_pos[1]),
+            self.agent_y, self.agent_x,
             self.static_grid, self.last_action, self.energy,
             self.food_positions_cache, self.door_open_array, self.button_broken_array
         )
 
     # ------------------------------------------------------------
-    # Render (unchanged, still uses static_grid + overlays)
+    # Render (unchanged)
     # ------------------------------------------------------------
     def render(self) -> Optional[np.ndarray]:
         if not hasattr(self, '_render_buffer') or self._render_buffer is None:
@@ -1126,72 +1184,66 @@ class GridMazeWorld(gym.Env):
                 elif tile == TileType.BUTTON and self.button_broken_array[y, x] == 1:
                     tile = TileType.BUTTON_BROKEN
                 color = self.colors[tile]
-                y0, y1 = y * self._cell_size, (y + 1) * self._cell_size
-                x0, x1 = x * self._cell_size, (x + 1) * self._cell_size
+                y0, y1 = y * self._cell_size, (y+1) * self._cell_size
+                x0, x1 = x * self._cell_size, (x+1) * self._cell_size
                 self._render_buffer[y0:y1, x0:x1] = color
 
         for door in self.doors:
-            center_y = int((door.y + 0.5) * self._cell_size)
-            center_x = int((door.x + 0.5) * self._cell_size)
-            font_scale = self._cell_size / 30.0
-            thickness = max(1, int(self._cell_size / 20))
-            radius = max(2, self._cell_size // 4)
-            circle_color = (50, 50, 50) if door.is_open else (200, 200, 200)
-            cv2.circle(self._render_buffer, (center_x, center_y), radius, circle_color, -1)
+            cy = int((door.y + 0.5) * self._cell_size)
+            cx = int((door.x + 0.5) * self._cell_size)
+            fs = self._cell_size / 30.0
+            thick = max(1, int(self._cell_size / 20))
+            r = max(2, self._cell_size // 4)
+            color = (50,50,50) if door.is_open else (200,200,200)
+            cv2.circle(self._render_buffer, (cx, cy), r, color, -1)
             text = str(door.door_number)
-            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-            text_x = center_x - text_size[0] // 2
-            text_y = center_y + text_size[1] // 2
-            cv2.putText(self._render_buffer, text, (text_x, text_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+            tw, th = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thick)[0]
+            cv2.putText(self._render_buffer, text, (cx - tw//2, cy + th//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0,0,0), thick)
 
         for button in self.buttons:
-            center_y = int((button.y + 0.5) * self._cell_size)
-            center_x = int((button.x + 0.5) * self._cell_size)
-            font_scale = self._cell_size / 30.0
-            thickness = max(1, int(self._cell_size / 20))
-            radius = max(2, self._cell_size // 5)
-            circle_color = (200, 0, 0) if button.is_broken else (0, 0, 200)
-            cv2.circle(self._render_buffer, (center_x, center_y), radius, circle_color, -1)
+            cy = int((button.y + 0.5) * self._cell_size)
+            cx = int((button.x + 0.5) * self._cell_size)
+            fs = self._cell_size / 30.0
+            thick = max(1, int(self._cell_size / 20))
+            r = max(2, self._cell_size // 5)
+            color = (200,0,0) if button.is_broken else (0,0,200)
+            cv2.circle(self._render_buffer, (cx, cy), r, color, -1)
             door = self.doors[button.door_idx]
             text = str(door.door_number)
-            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-            text_x = center_x - text_size[0] // 2
-            text_y = center_y + text_size[1] // 2
-            cv2.putText(self._render_buffer, text, (text_x, text_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
+            tw, th = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thick)[0]
+            cv2.putText(self._render_buffer, text, (cx - tw//2, cy + th//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, fs, (255,255,255), thick)
 
         if self.food_sources is not None:
             for i in range(self.food_sources.shape[0]):
                 y, x, delay, has_food, _ = self.food_sources[i]
-                center_y = int((y + 0.5) * self._cell_size)
-                center_x = int((x + 0.5) * self._cell_size)
+                cy = int((y + 0.5) * self._cell_size)
+                cx = int((x + 0.5) * self._cell_size)
                 if has_food:
-                    radius = max(1, self._cell_size // 3)
-                    cv2.circle(self._render_buffer, (center_x, center_y), radius, (0, 255, 0), -1)
+                    r = max(1, self._cell_size // 3)
+                    cv2.circle(self._render_buffer, (cx, cy), r, (0,255,0), -1)
                 else:
-                    small_radius = max(1, self._cell_size // 5)
-                    cv2.circle(self._render_buffer, (center_x, center_y), small_radius, (0, 0, 0), -1)
-                    font_scale = self._cell_size / 40.0
-                    thickness = max(1, int(self._cell_size / 30))
+                    r = max(1, self._cell_size // 5)
+                    cv2.circle(self._render_buffer, (cx, cy), r, (0,0,0), -1)
+                    fs = self._cell_size / 40.0
+                    thick = max(1, int(self._cell_size / 30))
                     text = str(delay)
-                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-                    text_x = center_x - text_size[0] // 2
-                    text_y = center_y + text_size[1] // 2
-                    cv2.putText(self._render_buffer, text, (text_x, text_y),
-                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
+                    tw, th = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thick)[0]
+                    cv2.putText(self._render_buffer, text, (cx - tw//2, cy + th//2),
+                                cv2.FONT_HERSHEY_SIMPLEX, fs, (255,255,255), thick)
 
-        ay, ax = int(self.agent_pos[0]), int(self.agent_pos[1])
-        center_y = int((ay + 0.5) * self._cell_size)
-        center_x = int((ax + 0.5) * self._cell_size)
-        radius = max(1, self._cell_size // 2)
-        cv2.circle(self._render_buffer, (center_x, center_y), radius, (255, 255, 255), -1)
+        ay, ax = self.agent_y, self.agent_x
+        cy = int((ay + 0.5) * self._cell_size)
+        cx = int((ax + 0.5) * self._cell_size)
+        r = max(1, self._cell_size // 2)
+        cv2.circle(self._render_buffer, (cx, cy), r, (255,255,255), -1)
 
-        info = f"Energy: {self.energy:.1f} | Step: {self.steps}/{self.max_steps}"
-        info += f" | Task: {self.task_class} (Lvl: {self.complexity_level:.1f})"
-        info_doors = f"Doors: {len(self.doors)} | Buttons: {len(self.buttons)}"
-        cv2.putText(self._render_buffer, info, (10, 15), cv2.QT_FONT_NORMAL, 0.55, (255, 255, 255), 1)
-        cv2.putText(self._render_buffer, info_doors, (10, 35), cv2.QT_FONT_NORMAL, 0.55, (255, 255, 255), 1)
+        info_line = f"Energy: {self.energy:.1f} | Step: {self.steps}/{self.max_steps}"
+        info_line += f" | Task: {self.task_class} (Lvl: {self.complexity_level:.1f})"
+        doors_line = f"Doors: {len(self.doors)} | Buttons: {len(self.buttons)}"
+        cv2.putText(self._render_buffer, info_line, (10,15), cv2.QT_FONT_NORMAL, 0.55, (255,255,255), 1)
+        cv2.putText(self._render_buffer, doors_line, (10,35), cv2.QT_FONT_NORMAL, 0.55, (255,255,255), 1)
 
         return self._render_buffer
 

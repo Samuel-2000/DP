@@ -47,7 +47,7 @@ class ReinforceTrainer(ParallelTrainerBase):
         else:
             obs_array, _ = self.vector_env.soft_reset_all()
 
-        observations = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+        observations = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
         all_obs = []
         all_actions = []
         all_rewards = []
@@ -64,9 +64,12 @@ class ReinforceTrainer(ParallelTrainerBase):
                 probs = torch.softmax(logits, dim=-1)
                 actions = torch.multinomial(probs, 1).squeeze(-1)
 
-            actions_np = actions.cpu().numpy()
+            #actions_np = actions.cpu().numpy()
+            self.action_buffer[:] = actions.cpu().numpy()
+            actions_np = self.action_buffer
+            
             obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
-            next_obs_tensor = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+            next_obs_tensor = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
 
             all_actions.append(actions)
             all_rewards.append(torch.tensor(rewards, dtype=torch.float32, device=self.device))
@@ -103,7 +106,7 @@ class ReinforceTrainer(ParallelTrainerBase):
                 logits, energy_pred, obs_pred = out
             else:
                 raise ValueError("Network did not return auxiliary outputs")
-            policy_loss, entropy = self.policy_loss_fn(logits, actions, rewards, mask)
+            policy_loss, entropy = self.policy_loss_fn(logits, actions, rewards)
             energy_target = experiences['energy_targets']
             obs_target = experiences['next_obs_targets']
             aux_loss = self.aux_loss_fn(energy_pred, energy_target, obs_pred, obs_target.float(), mask)
@@ -119,7 +122,7 @@ class ReinforceTrainer(ParallelTrainerBase):
             }
         else:
             logits = self.agent.network(obs)
-            policy_loss, entropy = self.policy_loss_fn(logits, actions, rewards, mask)
+            policy_loss, entropy = self.policy_loss_fn(logits, actions, rewards)
             total_loss = policy_loss
             metrics = {
                 'loss': total_loss.item(),

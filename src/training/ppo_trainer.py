@@ -74,7 +74,10 @@ class PPOTrainer(ParallelTrainerBase):
                 storage['logits'][step] = logits
                 storage['values'][step] = value
 
-                actions_np = actions.cpu().numpy()
+                #actions_np = actions.cpu().numpy()
+                self.action_buffer[:] = actions.cpu().numpy()
+                actions_np = self.action_buffer
+
                 obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
                 dones = terminated | truncated
 
