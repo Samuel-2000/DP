@@ -133,7 +133,6 @@ def main():
 
         config['training']['algorithm'] = args.algorithm
         if args.algorithm == 'ppo':
-            config['training']['rollout_steps'] = args.rollout_steps
             config['training']['ppo_epochs'] = args.ppo_epochs
             config['training']['mini_batch_size'] = args.mini_batch_size
             config['training']['clip_epsilon'] = args.clip_epsilon
@@ -141,7 +140,6 @@ def main():
             config['training']['gae_lambda'] = args.gae_lambda
         else:
             # These keys will still be present (set to None) to avoid KeyError
-            config['training']['rollout_steps'] = None
             config['training']['ppo_epochs'] = None
             config['training']['mini_batch_size'] = None
             config['training']['clip_epsilon'] = None

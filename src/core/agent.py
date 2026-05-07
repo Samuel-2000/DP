@@ -23,18 +23,21 @@ from pathlib import Path
 
 class Agent:
     def __init__(self,
-                 network_type: str = 'lstm',
-                 observation_size: int = OBSERVATION_SIZE,
-                 action_size: int = ACTION_SIZE,
-                 hidden_size: int = 512,
-                 use_auxiliary: bool = False,
-                 device: str = 'auto'):
+            network_type: str = 'lstm',
+            observation_size: int = OBSERVATION_SIZE,
+            action_size: int = ACTION_SIZE,
+            hidden_size: int = 512,
+            use_auxiliary: bool = False,
+            use_value_head: bool = False,
+            device: str = 'auto'
+        ):
         
         if device == 'auto':
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
         self.network_type = network_type
         self.use_auxiliary = use_auxiliary
+        self.use_value_head = use_value_head
         
         self._validate_observation_range()
         
@@ -45,7 +48,8 @@ class Agent:
                 observation_size=observation_size,
                 hidden_size=hidden_size,
                 action_size=action_size,
-                use_auxiliary=use_auxiliary
+                use_auxiliary=use_auxiliary,
+                use_value_head=use_value_head
             )
         elif network_type == 'transformer':
             self.network = TransformerPolicyNet(
@@ -57,7 +61,8 @@ class Agent:
                 num_heads=8,
                 num_layers=3,
                 memory_size=10,
-                use_auxiliary=use_auxiliary
+                use_auxiliary=use_auxiliary,
+                use_value_head=use_value_head
             )
         elif network_type == 'multimemory':
             self.network = MultiMemoryPolicyNet(
@@ -70,6 +75,7 @@ class Agent:
                 transformer_layers=3,
                 cache_size=50,
                 use_auxiliary=use_auxiliary
+                # Note: MultiMemoryPolicyNet does not support use_value_head currently
             )
         else:
             raise ValueError(f"Unknown network type: {network_type}")
@@ -140,13 +146,12 @@ class Agent:
     
     @classmethod
     def load(cls, path: str, device: str = 'auto'):
-        # MODIFIED: Support loading from checkpoint files (which contain model_state_dict and model_config)
         if device == 'auto':
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         checkpoint = safe_load(path, map_location=device)
         
-        # If the file is a checkpoint (saved by trainer with model_state_dict and model_config)
+        # First try loading as a checkpoint (saved by trainer)
         if 'model_state_dict' in checkpoint and 'model_config' in checkpoint:
             config = checkpoint['model_config']
             agent = cls(
@@ -155,6 +160,7 @@ class Agent:
                 action_size=config.get('action_size', ACTION_SIZE),
                 hidden_size=config['hidden_size'],
                 use_auxiliary=config.get('use_auxiliary', False),
+                use_value_head=config.get('use_value_head', False),
                 device=device
             )
             agent.network.load_state_dict(checkpoint['model_state_dict'], strict=False)
@@ -162,31 +168,21 @@ class Agent:
             return agent
         
         # Otherwise assume it's a standard agent file
-        config = checkpoint['config']   # will crash if missing
-        
-        # Support both flat and nested (older) config structures
+        config = checkpoint['config']
         if 'model' in config:
             cfg = config['model']
         else:
             cfg = config
         
-        # Direct key access – crash if any missing
-        network_type = cfg['network_type']
-        use_auxiliary = cfg['use_auxiliary']
-        hidden_size = cfg['hidden_size']
-        
-        observation_size = OBSERVATION_SIZE
-        action_size = ACTION_SIZE
-        
         agent = cls(
-            network_type=network_type,
-            observation_size=observation_size,
-            action_size=action_size,
-            hidden_size=hidden_size,
-            use_auxiliary=use_auxiliary,
+            network_type=cfg['network_type'],
+            observation_size=cfg.get('observation_size', OBSERVATION_SIZE),
+            action_size=cfg.get('action_size', ACTION_SIZE),
+            hidden_size=cfg['hidden_size'],
+            use_auxiliary=cfg.get('use_auxiliary', False),
+            use_value_head=cfg.get('use_value_head', False),
             device=device
         )
-        
         agent.network.load_state_dict(checkpoint['state_dict'], strict=False)
         print(f"Loaded agent from {path} (strict=False)")
         return agent

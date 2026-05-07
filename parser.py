@@ -60,7 +60,6 @@ def parse_args():
                             help="RL algorithm: 'reinforce' or 'ppo' (default)")
 
     # PPO specific arguments (ignored if algorithm != 'ppo')
-    train_parser.add_argument("--rollout-steps", type=int, default=2048)
     train_parser.add_argument("--ppo-epochs", type=int, default=4)
     train_parser.add_argument("--mini-batch-size", type=int, default=64)
     train_parser.add_argument("--clip-epsilon", type=float, default=0.2)

@@ -24,8 +24,6 @@ from src.core.constants import OBSERVATION_SIZE, ACTION_SIZE
 
 def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increase_threshold: float, decrease_threshold: float):
     """Generate all training plots from a metrics dictionary."""
-    import matplotlib.pyplot as plt
-
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     def save_plot(fig, name):
@@ -321,6 +319,7 @@ class ParallelTrainerBase:
             action_size=ACTION_SIZE,
             hidden_size=model_cfg['hidden_size'],
             use_auxiliary=model_cfg['use_auxiliary'],
+            use_value_head=model_cfg.get('use_value_head', False),
             device=self.device
         )
         return agent

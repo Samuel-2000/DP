@@ -11,21 +11,14 @@ from src.training.losses import PPOLoss
 
 
 class PPOTrainer(ParallelTrainerBase):
-    """
-    Proximal Policy Optimization with:
-      - Value head for state value estimation
-      - GAE (Generalized Advantage Estimation)
-      - Multiple PPO epochs over a fixed-size rollout buffer
-      - Mini-batch updates
-    """
-
     def __init__(self, config):
         # Force value head to be used (required for PPO)
         config['model']['use_value_head'] = True
         super().__init__(config)
 
         train_cfg = self.config['training']
-        self.rollout_steps = train_cfg['rollout_steps']
+        max_steps = self.config['environment']['max_steps']
+        self.rollout_steps = self.batch_size * max_steps
         self.ppo_epochs = train_cfg['ppo_epochs']
         self.mini_batch_size = train_cfg['mini_batch_size']
         self.clip_epsilon = train_cfg['clip_epsilon']
@@ -44,50 +37,48 @@ class PPOTrainer(ParallelTrainerBase):
 
     def _collect_rollout(self) -> dict:
         """
-        Collect exactly `rollout_steps` steps from the parallel environments.
-        Returns a dictionary with tensors of shape [total_steps, ...].
+        Collect one full episode from each parallel environment.
+        Resets hidden state at the start of each episode.
+        Returns buffer with shape [B, T, ...] where T = episode length (same for all envs).
         """
         num_envs = self.batch_size
-        steps_needed = self.rollout_steps
-        total_steps = 0
+        max_steps = self.vector_env.envs[0].max_steps
 
-        # Reset all environments and agent memory
+        # Full reset: new random grids for all environments
         obs_array, _ = self.vector_env.reset()
-        self.agent.reset()
-        obs = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+        self.agent.reset()  # reset LSTM/transformer hidden state
+
+        obs = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)  # [B,1,K]
 
         storage = {
-            'obs': [],
-            'actions': [],
-            'rewards': [],
-            'dones': [],
-            'values': [],
-            'logits': [],
+            'obs': [], 'actions': [], 'rewards': [], 'dones': [],
+            'values': [], 'logits': []
         }
         if self.agent.use_auxiliary:
             storage['energies'] = []
 
-        while total_steps < steps_needed:
+        # Run until all environments are done (max_steps)
+        for step in range(max_steps):
             with torch.no_grad():
                 outputs = self.agent.network(obs, return_auxiliary=self.agent.use_auxiliary, return_value=True)
+                logits = outputs[0]   # [B,1,A]
+                value = outputs[-1]   # [B,1,1]
 
-                logits = outputs[0]
-                value = outputs[-1]
-            
-            logits = logits.squeeze(1)   # [B, A]
-            value = value.squeeze(1)     # [B]
+            logits = logits.squeeze(1)   # [B,A]
+            value = value.squeeze(1)     # [B,1]
 
             dist = torch.distributions.Categorical(logits=logits)
             actions = dist.sample()
 
-            storage['obs'].append(obs.squeeze(1))
-            storage['actions'].append(actions)
-            storage['logits'].append(logits)
-            storage['values'].append(value)
+            storage['obs'].append(obs.squeeze(1))      # [B,K]
+            storage['actions'].append(actions)         # [B]
+            storage['logits'].append(logits)           # [B,A]
+            storage['values'].append(value)            # [B,1]
 
             actions_np = actions.cpu().numpy()
             obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
             dones = terminated | truncated
+
             storage['rewards'].append(torch.tensor(rewards, dtype=torch.float32, device=self.device))
             storage['dones'].append(torch.tensor(dones, dtype=torch.float32, device=self.device))
 
@@ -96,34 +87,40 @@ class PPOTrainer(ParallelTrainerBase):
                 storage['energies'].append(torch.tensor(energies, dtype=torch.float32, device=self.device))
 
             obs = torch.tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
-            total_steps += num_envs
 
-        # Concatenate all stored tensors
-        for k in storage:
-            storage[k] = torch.cat(storage[k], dim=0)
+            # Stop if all environments are done (early termination)
+            if dones.all():
+                break
 
-        # Compute advantages and returns using GAE
+        # Stack along time dimension -> [B, T, ...]
+        for k in ['obs', 'actions', 'rewards', 'dones', 'logits']:
+            storage[k] = torch.stack(storage[k], dim=1)
+        storage['values'] = torch.stack(storage['values'], dim=1).squeeze(-1)  # [B,T]
+        if 'energies' in storage:
+            storage['energies'] = torch.stack(storage['energies'], dim=1)  # [B,T]
+
+        mask = torch.ones_like(storage['rewards'])   # [B,T]
+
         advantages, returns = self.ppo_loss_fn.compute_gae(
-            storage['rewards'].unsqueeze(0),
-            storage['values'].unsqueeze(0),
-            storage['dones'].unsqueeze(0),
-            mask=torch.ones_like(storage['rewards']).unsqueeze(0)
+            storage['rewards'],
+            storage['values'],
+            storage['dones'],
+            mask
         )
-        advantages = advantages.squeeze(0)
-        returns = returns.squeeze(0)
 
         experiences = {
             'observations': storage['obs'],
             'actions': storage['actions'],
+            'rewards': storage['rewards'],
             'advantages': advantages,
             'returns': returns,
             'old_logits': storage['logits'],
             'old_values': storage['values'],
-            'mask': torch.ones_like(storage['rewards']),
+            'mask': mask,
         }
         if self.agent.use_auxiliary:
             experiences['energy_targets'] = storage['energies']
-            # Next observation targets are optional and omitted for brevity
+
         return experiences
 
     def _train_step(self, experiences: dict) -> dict:
@@ -135,20 +132,23 @@ class PPOTrainer(ParallelTrainerBase):
         indices = torch.randperm(total_steps)
         metrics_sum = {}
 
+        # Detach tensors that should not have gradients
+        for key in ['old_logits', 'old_values', 'advantages', 'returns', 'mask']:
+            experiences[key] = experiences[key].detach()
+
         for epoch in range(self.ppo_epochs):
             for start in range(0, total_steps, self.mini_batch_size):
                 end = min(start + self.mini_batch_size, total_steps)
                 idx = indices[start:end]
                 batch = {k: v[idx] for k, v in experiences.items()}
 
-                obs = batch['observations'].unsqueeze(1)  # add seq dim
+                # Do NOT reset the hidden state! We only detach it later.
+                obs = batch['observations']   # [B, T, K]
 
                 outputs = self.agent.network(obs, return_auxiliary=False, return_value=True)
-                logits = outputs[0]
-                values = outputs[-1]
-
-                logits = logits.squeeze(1)
-                values = values.squeeze(1)
+                logits = outputs[0]           # [B, T, A]
+                values = outputs[-1]          # [B, T, 1]
+                values = values.squeeze(-1)   # [B, T]
 
                 loss, metrics = self.ppo_loss_fn(
                     logits, batch['old_logits'], batch['actions'],
@@ -160,6 +160,13 @@ class PPOTrainer(ParallelTrainerBase):
                 self.gradient_clipper.clip(self.agent.network.parameters())
                 self.optimizer.step()
 
+                # ----- CRITICAL FIX: Detach the hidden state after the update -----
+                if hasattr(self.agent.network, 'hidden_state') and self.agent.network.hidden_state is not None:
+                    h, c = self.agent.network.hidden_state
+                    self.agent.network.hidden_state = (h.detach(), c.detach())
+                # -----------------------------------------------------------------
+
+                # Aggregate metrics
                 for k, v in metrics.items():
                     metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_epochs / (total_steps / self.mini_batch_size)
 
@@ -198,7 +205,7 @@ class PPOTrainer(ParallelTrainerBase):
             # Perform multiple PPO updates on this rollout
             train_metrics = self._train_step(experiences)
 
-            avg_reward = experiences['rewards'].mean().item()
+            avg_reward = experiences['rewards'].sum(dim=1).mean().item()   # total reward per episode, averaged
             self.metrics['train_rewards'].append(avg_reward)
             self.metrics['train_losses'].append(train_metrics.get('loss', 0))
             self.metrics.setdefault('policy_losses', []).append(train_metrics.get('policy_loss', 0))
