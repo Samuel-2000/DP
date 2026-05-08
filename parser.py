@@ -28,7 +28,7 @@ def parse_args():
             python run.py test --play --epochs 1 --consecutive-episodes 2 --dynamic-complexity --stages basic doors buttons
 
             # Plot saved metrics
-            python run.py plot --experiment-name ./models/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_22-35-53/lstm_64b_0.0005lr_final_checkpoint.pt
+            python run.py plot --metrics-path ./models/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30
 
             # Resume training
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume models/lstm/aux/lstm_64b_0.0005lr_2026-04-28_11-35-00/lstm_64b_0.0005lr_2026-04-28_11-35-00_epoch_000100_checkpoint.pt
@@ -51,7 +51,7 @@ def parse_args():
     train_parser.add_argument("--update-per-episode", action="store_true", default=False, help="Update after each episode. Use --no-update-per-episode to update once per epoch.")
 
     train_parser.add_argument("--save-dir", type=str, default="models", help="Directory to save models")
-    train_parser.add_argument("--experiment-name", type=str, default=None, help="Override experiment name")
+    train_parser.add_argument("--experiment-name", type=str, default=None, help="Optional experiment name")
     train_parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint file (.pt) to resume training")
 
 
@@ -122,10 +122,7 @@ def parse_args():
 
 
     plot_parser = subparsers.add_parser("plot", help="Plot training metrics from saved data")
-    plot_parser.add_argument("--experiment-name", type=str, required=True, help="Name of the experiment (matches folder in logs/metrics)")
-    plot_parser.add_argument("--output-dir", type=str, default="results/plots", help="Directory to save generated plots")
-
-
+    plot_parser.add_argument("--metrics-path", type=str, required=True, help="Path to metrics.npz, or the timestamp directory")
 
     args = parser.parse_args()
 

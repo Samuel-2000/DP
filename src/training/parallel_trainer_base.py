@@ -256,6 +256,7 @@ class ParallelTrainerBase:
         else:
             self.complexity_manager = None
 
+        self.model_name = self._build_model_name()
         self._setup_experiment_dirs()
 
         self.agent = self._create_agent()
@@ -295,26 +296,47 @@ class ParallelTrainerBase:
         self.vector_env = self._create_vectorized_env()
         self._grid_pool = []
 
+    def _build_model_name(self) -> str:
+        train_cfg = self.config['training']
+        batch_size = train_cfg['batch_size']
+        lr = train_cfg['learning_rate']
+        grid_size = self.config['environment']['grid_size']
+        base = f"{batch_size}b_{lr}lr_gs{grid_size}"
+        if train_cfg['algorithm'] == 'ppo':
+            ppo_epochs = train_cfg['ppo_epochs']
+            mini_batch_size = train_cfg['mini_batch_size']
+            base += f"_pe{ppo_epochs}_mb{mini_batch_size}"
+        return base
+
     def _setup_experiment_dirs(self):
         exp_cfg = self.config['experiment']
         network_type = self.config['model']['type']
         use_aux = self.config['model']['use_auxiliary']
         aux_str = 'aux' if use_aux else 'no_aux'
-        base_name = exp_cfg['name']
-        date_subfolder = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        self.base_name = base_name
-        self.date_subfolder = date_subfolder
+        algorithm = self.config['training']['algorithm']
 
-        self.experiment_dir = Path(exp_cfg['save_dir']) / network_type / aux_str / base_name / date_subfolder
+        prefix = exp_cfg.get('prefix')
+        if prefix:
+            base_dir = Path(exp_cfg['save_dir']) / prefix / network_type / algorithm / aux_str / self.model_name
+        else:
+            base_dir = Path(exp_cfg['save_dir']) / network_type / algorithm / aux_str / self.model_name
+
+        date_subfolder = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        self.experiment_dir = base_dir / date_subfolder
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
 
-        self.plots_dir = Path('results/plots') / network_type / aux_str / base_name / date_subfolder
-        self.plots_dir.mkdir(parents=True, exist_ok=True)
+        # Create subdirectories
+        self.weights_dir = self.experiment_dir / 'weights'
+        self.metrics_dir = self.experiment_dir / 'metrics'
+        self.plots_dir = self.experiment_dir / 'plots'
 
-        self.metrics_path = Path('logs/metrics') / network_type / aux_str / base_name / f"{date_subfolder}_metrics.npz"
-        self.metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        self.weights_dir.mkdir(exist_ok=True)
+        self.metrics_dir.mkdir(exist_ok=True)
+        self.plots_dir.mkdir(exist_ok=True)
 
-        self.logger = setup_logging(f"{base_name}_{date_subfolder}")
+        self.metrics_path = self.metrics_dir / 'metrics.npz'
+
+        self.logger = setup_logging(f"{self.model_name}_{date_subfolder}")
 
     def _create_agent(self) -> Agent:
         model_cfg = self.config['model']
@@ -413,12 +435,25 @@ class ParallelTrainerBase:
         if reset_hidden:
             self.agent.reset()
 
-    def _post_epoch_hook(self, epoch: int):
+    def _post_epoch_hook(self, epoch: int, dummy):
         """
         Called after each epoch.
         If dynamic complexity is enabled, it updates the performance history,
         checks for complexity adjustments or stage switches, and records metrics.
         """
+
+        # Handle key presses
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('v'):
+            self._visualize_current_environments(epoch)
+            cv2.imshow('Training Controls', dummy)
+        elif key == ord('q'):
+            print("\nEarly stop requested.")
+            self._save_model('interrupted')
+            cv2.destroyAllWindows()
+            return True
+
+
         if self.dynamic and self.complexity_manager is not None:
             # Add the average reward of this epoch (if you store epoch_rewards)
             if 'epoch_rewards' in self.metrics and self.metrics['epoch_rewards']:
@@ -445,6 +480,8 @@ class ParallelTrainerBase:
             self.metrics['complexity_history'].append(self.complexity_manager.get_current_complexity())
             self.metrics['task_class_history'].append(self.complexity_manager.get_current_task_class())
             self.metrics['performance_scores'].append(self.complexity_manager.calculate_performance_score())
+        
+        return False
 
     def _test_valid(self, epochs: int = 10) -> dict:
         """
@@ -497,11 +534,11 @@ class ParallelTrainerBase:
 
     def _save_model(self, name: str):
         """Save the agent (best/final) and a full checkpoint for resuming."""
-        agent_path = self.experiment_dir / f"{name}.pt"
+        agent_path = self.weights_dir / f"{name}.pt"
         self.agent.save(str(agent_path))
         self.logger.info(f"Saved agent to {agent_path}")
 
-        checkpoint_path = self.experiment_dir / f"{name}_checkpoint.pt"
+        checkpoint_path = self.weights_dir / f"{name}_checkpoint.pt"
         checkpoint = {
             'epoch': len(self.metrics['train_rewards']),
             'optimizer_state': self.optimizer.state_dict(),
@@ -574,6 +611,48 @@ class ParallelTrainerBase:
 
         # Generate plots using the standalone function
         generate_plots_from_metrics(self.metrics, self.plots_dir, increase_threshold, decrease_threshold)
+
+
+
+    def _visualize_current_environments(self, epoch: int):
+        """Visualize a sample of current training environments"""
+        print(f"\n📸 Visualizing environments at epoch {epoch}")
+
+        num_to_show = min(4, len(self.vector_env.envs))
+        cell_size = 256
+        padding = 10
+        cols = 2
+        rows = (num_to_show + cols - 1) // cols
+        total_width = cols * cell_size + (cols + 1) * padding
+        total_height = rows * cell_size + (rows + 1) * padding
+        combined = np.zeros((total_height, total_width, 3), dtype=np.uint8)
+        
+        for i in range(num_to_show):
+            env = self.vector_env.envs[i]
+            # Force render by temporarily setting render_size
+            original_size = env.render_size
+            env.render_size = cell_size
+            if hasattr(env, '_render_buffer'):
+                env._render_buffer = None
+            frame = super(type(env), env).render()
+            env.render_size = original_size
+            if frame is None:
+                frame = np.zeros((cell_size, cell_size, 3), dtype=np.uint8)
+                cv2.putText(frame, f"Env {i}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+            if frame.shape[:2] != (cell_size, cell_size):
+                frame = cv2.resize(frame, (cell_size, cell_size))
+            col = i % cols
+            row = i // cols
+            x = padding + col * (cell_size + padding)
+            y = padding + row * (cell_size + padding)
+            combined[y:y+cell_size, x:x+cell_size] = frame
+
+        if self.dynamic:
+            status = self.complexity_manager.get_status()
+            print(f"  Stage: {status['current_stage']}, Complexity: {status['current_complexity']:.2f}")
+            
+        cv2.imshow('Training Visualization', combined)
+        cv2.waitKey(0)
 
     def train(self):
         """To be implemented by subclasses."""

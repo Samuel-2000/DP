@@ -167,13 +167,18 @@ class ReinforceTrainer(ParallelTrainerBase):
                 self.metrics['best_reward'] = test_metrics['reward']
                 self._save_model('best')
 
-        # Visualisation control window
+        # ---------- Visualisation setup ----------
+        print("\n🎮 Visualisation Controls:")
+        print("  Press 'v' to visualise current environments")
+        print("  Press 'q' to stop training early")
+        print("=" * 50)
         cv2.namedWindow('Training Controls', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('Training Controls', 400, 100)
         dummy = np.zeros((100, 400, 3), dtype=np.uint8)
-        cv2.putText(dummy, "Press 'v' to visualise", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(dummy, "Press 'q' to quit", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(dummy, "Press 'v' to visualise", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+        cv2.putText(dummy, "Press 'q' to quit", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
         cv2.imshow('Training Controls', dummy)
-        cv2.waitKey(1)
+        cv2.waitKey(1)   # non‑blocking
 
         pbar = tqdm(range(start_epoch, epochs), desc="Epochs")
         start_time = time.time()
@@ -237,19 +242,8 @@ class ReinforceTrainer(ParallelTrainerBase):
                 avg_epoch_reward = np.mean(epoch_rewards) if epoch_rewards else 0
                 self.metrics.setdefault('epoch_rewards', []).append(avg_epoch_reward)
 
-                # Handle key presses
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('v'):
-                    self._visualize_current_environments(epoch)
-                    cv2.imshow('Training Controls', dummy)
-                elif key == ord('q'):
-                    print("\nEarly stop requested.")
-                    self._save_model('interrupted')
-                    cv2.destroyAllWindows()
+                if self._post_epoch_hook(epoch, dummy) is True:
                     break
-
-                # Dynamic complexity hook
-                self._post_epoch_hook(epoch)
 
                 # Periodic test and save
                 if epoch % test_interval == 0 and epoch > 0:
@@ -286,38 +280,6 @@ class ReinforceTrainer(ParallelTrainerBase):
         self._save_model('final')
         self._save_metrics()
         self._print_training_summary(start_time)
-
-    def _visualize_current_environments(self, epoch):
-        """Display a montage of the current training environments (first few envs)."""
-        print(f"\nVisualizing at epoch {epoch}")
-        num_to_show = min(4, len(self.vector_env.envs))
-        cell_size = 256
-        padding = 10
-        cols = 2
-        rows = (num_to_show + cols - 1) // cols
-        total_w = cols * (cell_size + padding) + padding
-        total_h = rows * (cell_size + padding) + padding
-        combined = np.zeros((total_h, total_w, 3), dtype=np.uint8)
-        for i in range(num_to_show):
-            env = self.vector_env.envs[i]
-            original = env.render_size
-            env.render_size = cell_size
-            if hasattr(env, '_render_buffer'):
-                env._render_buffer = None
-            frame = env.render()
-            env.render_size = original
-            if frame is None:
-                frame = np.zeros((cell_size, cell_size, 3), dtype=np.uint8)
-            if frame.shape[:2] != (cell_size, cell_size):
-                frame = cv2.resize(frame, (cell_size, cell_size))
-            row, col = i // cols, i % cols
-            y = padding + row * (cell_size + padding)
-            x = padding + col * (cell_size + padding)
-            combined[y:y+cell_size, x:x+cell_size] = frame
-        info = f"Stage: {self.get_environment_config()['task_class']}, Complexity: {self.get_environment_config()['complexity_level']:.2f}"
-        cv2.putText(combined, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.imshow('Training Visualization', combined)
-        cv2.waitKey(0)
 
     def _print_training_summary(self, start_time):
         total_time = time.time() - start_time

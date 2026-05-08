@@ -50,7 +50,7 @@ class Visualizer:
             return None
 
         frame = raw_frame.copy()
-        y, x = self.env.agent_pos
+        y, x = self.env.agent_y, self.env.agent_x
         cell_size = self.env._cell_size
         grid_size = self.env.grid_size
 

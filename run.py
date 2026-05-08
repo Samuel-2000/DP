@@ -35,34 +35,33 @@ def main():
 
 
     if args.command == "plot":
-        checkpoint_path = Path(args.experiment_name)
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        path = Path(args.metrics_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Path not found: {path}")
 
-        parts = checkpoint_path.parts
-        date_subfolder = parts[-2]
-        base_name = parts[-3]
-        aux_str = parts[-4]
-        network_type = parts[-5]
+        # Resolve metrics.npz
+        if path.is_file():
+            if path.suffix == '.npz':
+                metrics_path = path
+        else:  # directory
+            metrics_path = path / 'metrics' / 'metrics.npz'
 
-        metrics_path = Path("logs/metrics") / network_type / aux_str / base_name / f"{date_subfolder}_metrics.npz"
         if not metrics_path.exists():
-            raise FileNotFoundError(f"Metrics file not found: {metrics_path}")
+            raise FileNotFoundError(f"Metrics file not found at {metrics_path}")
 
         data = np.load(metrics_path, allow_pickle=True)
         metrics = {key: data[key] for key in data.files}
 
-        # Convert numeric task class back to strings
+        # Convert numeric task class back to strings if needed
         if 'task_class_history' in metrics and metrics['task_class_history'].dtype.kind in 'iuf':
             stage_map = {0.0: 'basic', 0.33: 'doors', 0.66: 'buttons', 1.0: 'complex'}
             metrics['task_class_history'] = [stage_map.get(v, 'unknown') for v in metrics['task_class_history']]
 
-        # Extract thresholds (defaults if missing)
         increase_threshold = metrics.get('increase_threshold', 0.65)
         decrease_threshold = metrics.get('decrease_threshold', 0.4)
 
-        plots_dir = Path("results/plots") / network_type / aux_str / base_name / date_subfolder
-        # Pass the extra arguments
+        # Plots go into the plots subdirectory inside the timestamp folder
+        plots_dir = metrics_path.parent.parent / 'plots'
         generate_plots_from_metrics(metrics, plots_dir, increase_threshold, decrease_threshold)
         print(f"Plots saved to {plots_dir}")
         return
@@ -91,6 +90,7 @@ def main():
         config = {
             "experiment": {
                 "name": args.experiment_name or f"{args.network_type}_{args.batch_size}b_{args.lr}lr",
+                "prefix": args.experiment_name,   # None if not provided
                 "save_dir": args.save_dir,
                 "seed": args.seed,
                 "resume": args.resume

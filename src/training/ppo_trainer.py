@@ -7,6 +7,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import time
+import cv2
 from .parallel_trainer_base import ParallelTrainerBase
 from src.training.losses import PPOLoss
 
@@ -251,6 +252,20 @@ class PPOTrainer(ParallelTrainerBase):
                 self.metrics['best_reward'] = test_metrics['reward']
                 self._save_model('best')
 
+        # ---------- Visualisation setup ----------
+        print("\n🎮 Visualisation Controls:")
+        print("  Press 'v' to visualise current environments")
+        print("  Press 'q' to stop training early")
+        print("=" * 50)
+        cv2.namedWindow('Training Controls', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('Training Controls', 400, 100)
+        dummy = np.zeros((100, 400, 3), dtype=np.uint8)
+        cv2.putText(dummy, "Press 'v' to visualise", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+        cv2.putText(dummy, "Press 'q' to quit", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+        cv2.imshow('Training Controls', dummy)
+        cv2.waitKey(1)   # non‑blocking
+
+
         pbar = tqdm(range(start_epoch, epochs), desc="PPO Epochs")
         start_time = time.time()
 
@@ -268,7 +283,9 @@ class PPOTrainer(ParallelTrainerBase):
                 self.metrics.setdefault('entropies', []).append(train_metrics['entropy'])
 
             self.lr_scheduler.step()
-            self._post_epoch_hook(epoch)
+
+            if self._post_epoch_hook(epoch, dummy) is True:
+                break
 
             if epoch % test_interval == 0 and epoch > 0:
                 test_metrics = self._test_valid(epochs=4)
