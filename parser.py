@@ -12,7 +12,7 @@ def parse_args():
             # Train without dynamic complexity (static environment)
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class doors --complexity-level 0.7 [--n-doors 5]
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class buttons [--n-doors 5 --n-buttons-per-door 4 --button-break-probability 0.0]
-            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --task-class complex --complexity-level 1.0 --consecutive-episodes 4 --update-per-episode
+            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --task-class complex --complexity-level 1.0 --reinforce-intra-epochs 4 --update-per-episode
             
             
             # Test a model statically
@@ -20,12 +20,12 @@ def parse_args():
 
             # dynamic complexity test across stages and complexities
             python run.py test --model models/lstm_best.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
-            run.py test --model /models/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --consecutive-episodes 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
+            run.py test --model /models/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
 
             # Human play mode
             python run.py test --play --epochs 4 --task-class complex --complexity-level 0.5
             python run.py test --play --epochs 1 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
-            python run.py test --play --epochs 1 --consecutive-episodes 2 --dynamic-complexity --stages basic doors buttons
+            python run.py test --play --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons
 
             # Plot saved metrics
             python run.py plot --metrics-path ./models/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30
@@ -56,8 +56,7 @@ def parse_args():
 
 
 
-    train_parser.add_argument("--algorithm", type=str, default="ppo", choices=["reinforce", "ppo"],
-                            help="RL algorithm: 'reinforce' or 'ppo' (default)")
+    train_parser.add_argument("--algorithm", type=str, default="ppo", choices=["reinforce", "ppo"], help="RL algorithm: 'reinforce' or 'ppo' (default)")
 
     # PPO specific arguments (ignored if algorithm != 'ppo')
     train_parser.add_argument("--ppo-intra-epochs", type=int, default=4)
@@ -100,7 +99,7 @@ def parse_args():
 
     for general_parser in [train_parser, test_parser]:
         general_parser.add_argument("--epochs", required=True, type=int)
-        general_parser.add_argument("--consecutive-episodes", type=int, default=1, help="Number of episodes per epoch")
+        general_parser.add_argument("--reinforce-intra-epochs", type=int, default=1, help="Number of same grid intra epochs during 1 epoch")
         general_parser.add_argument("--grid-change-prob", type=float, default=0.0, help="Probability to generate a new grid between episodes (else pick random from pool)")
 
         general_parser.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -143,6 +142,8 @@ def parse_args():
     if bool(args.dynamic_complexity) and bool(any([args.n_doors, args.n_buttons_per_door, args.button_break_probability])):
         raise "either use dynamic_complexity or choose door and button parameters"
 
+    if bool(args.reinforce_intra_epochs) and args.algorithm != "reinforce":
+        raise "either use dynamic_complexity or choose task_class"
 
     elif args.command == "test":
         if bool(args.play) == bool(args.model):

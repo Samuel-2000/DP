@@ -239,7 +239,7 @@ class ParallelTrainerBase:
 
         training_cfg = config['training']
         self.batch_size = training_cfg['batch_size']
-        self.consecutive_episodes = training_cfg['consecutive_episodes']
+        self.reinforce_intra_epochs = training_cfg['reinforce_intra_epochs']
         self.grid_change_prob = training_cfg['grid_change_prob']
         self.update_per_episode = training_cfg['update_per_episode']
         self.epochs = training_cfg['epochs']
@@ -305,9 +305,9 @@ class ParallelTrainerBase:
         grid_size = self.config['environment']['grid_size']
         base = f"{batch_size}b_{lr}lr_gs{grid_size}"
         if train_cfg['algorithm'] == 'ppo':
-            ppo_epochs = train_cfg['ppo_epochs']
+            ppo_intra_epochs = train_cfg['ppo_intra_epochs']
             mini_batch_size = train_cfg['mini_batch_size']
-            base += f"_pie{ppo_epochs}_mb{mini_batch_size}"
+            base += f"_pie{ppo_intra_epochs}_mb{mini_batch_size}"
         return base
 
     def _setup_experiment_dirs(self):
@@ -359,7 +359,7 @@ class ParallelTrainerBase:
             optimizer_name=train_cfg['optimizer'],
             parameters=self.agent.network.parameters(),
             lr=train_cfg['learning_rate'],
-            weight_decay=train_cfg['weight_decay']
+            weight_decay=train_cfg['weight_decay'],
         )
 
     def _create_vectorized_env(self) -> VectorizedMazeEnv:
@@ -460,7 +460,7 @@ class ParallelTrainerBase:
             if 'epoch_rewards' in self.metrics and self.metrics['epoch_rewards']:
                 avg_reward = self.metrics['epoch_rewards'][-1]
             elif self.metrics['train_rewards']:
-                # fallback: use last train reward (if consecutive_episodes=1)
+                # fallback: use last train reward (if reinforce_intra_epochs=1)
                 avg_reward = self.metrics['train_rewards'][-1]
             else:
                 return

@@ -213,7 +213,7 @@ class Agent:
 
             print(f"\n--- Epoch {epoch+1}/{args.epochs}: New grid (Type: {env.task_class}, Complexity: {env.complexity_level:.2f}) ---")
 
-            for ep_in_epoch in range(args.consecutive_episodes):
+            for ep_in_epoch in range(args.reinforce_intra_epochs):
                 if ep_in_epoch > 0:
                     obs, info = env.soft_reset()
 

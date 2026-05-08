@@ -172,7 +172,7 @@ class ReinforceTrainer(ParallelTrainerBase):
                     self._save_checkpoint(epoch)
 
                 # Collect episodes (consecutive episodes on same or different grids)
-                for ep_idx in range(self.consecutive_episodes):
+                for ep_idx in range(self.reinforce_intra_epochs):
                     if ep_idx == 0:
                         full_reset = True
                     else:

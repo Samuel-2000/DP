@@ -20,7 +20,7 @@ class PPOTrainer(ParallelTrainerBase):
         super().__init__(config)
 
         train_cfg = self.config['training']
-        self.ppo_epochs = train_cfg['ppo_epochs']
+        self.ppo_intra_epochs = train_cfg['ppo_intra_epochs']
         self.mini_batch_size = train_cfg['mini_batch_size']
         self.clip_epsilon = train_cfg['clip_epsilon']
         self.value_coef = train_cfg['value_coef']
@@ -180,7 +180,7 @@ class PPOTrainer(ParallelTrainerBase):
         # Ensure network is in training mode for backward pass
         network.train()
 
-        for _ in range(self.ppo_epochs):
+        for _ in range(self.ppo_intra_epochs):
             for start in range(0, total_envs, self.mini_batch_size):
                 end = min(start + self.mini_batch_size, total_envs)
                 env_idx = indices[start:end]
@@ -229,7 +229,7 @@ class PPOTrainer(ParallelTrainerBase):
 
                 # Aggregate metrics
                 for k, v in metrics.items():
-                    metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_epochs / (total_envs / self.mini_batch_size)
+                    metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_intra_epochs / (total_envs / self.mini_batch_size)
 
         return metrics_sum
 

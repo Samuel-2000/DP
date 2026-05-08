@@ -3,7 +3,7 @@
 profile_run.py – Run run.py with full profiling (cProfile and PyTorch profiler).
 Example:
     python profile_run.py train --network-type lstm --epochs 200 --batch-size 64 \
-        --lr 0.0005 --dynamic-complexity --algorithm reinforce --consecutive-episodes 1
+        --lr 0.0005 --dynamic-complexity --algorithm reinforce --reinforce-intra-epochs 1
 """
 
 import sys
@@ -102,7 +102,7 @@ def run_training_profiled(args, enable_pytorch_profiler: bool = False):
             "min_basic_complexity": args.min_basic_complexity,
             "curriculum_stages": args.curriculum_stages,
             "auxiliary_tasks": args.auxiliary_tasks,
-            "consecutive_episodes": args.consecutive_episodes,
+            "reinforce_intra_epochs": args.reinforce_intra_epochs,
             "grid_change_prob": args.grid_change_prob,
             "update_per_episode": args.update_per_episode,
             "algorithm": args.algorithm,
@@ -111,13 +111,13 @@ def run_training_profiled(args, enable_pytorch_profiler: bool = False):
 
     # Add PPO specific args if needed
     if args.algorithm == 'ppo':
-        config['training']['ppo_epochs'] = args.ppo_epochs
+        config['training']['ppo_intra_epochs'] = args.ppo_intra_epochs
         config['training']['mini_batch_size'] = args.mini_batch_size
         config['training']['clip_epsilon'] = args.clip_epsilon
         config['training']['value_coef'] = args.value_coef
         config['training']['gae_lambda'] = args.gae_lambda
     else:
-        config['training']['ppo_epochs'] = None
+        config['training']['ppo_intra_epochs'] = None
         config['training']['mini_batch_size'] = None
         config['training']['clip_epsilon'] = None
         config['training']['value_coef'] = None

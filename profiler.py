@@ -53,9 +53,9 @@ class MinimalProfiler:
                 'epochs': 10, 'batch_size': self.args.batch_size, 'learning_rate': 0.0005,
                 'gamma': 0.97, 'entropy_coef': 0.01, 'max_grad_norm': 1.0,
                 'save_interval': 1000, 'test_interval': 500, 'optimizer': 'adam',
-                'weight_decay': 0.0, 'dynamic_complexity': False, 'consecutive_episodes': 1,
+                'weight_decay': 0.0, 'dynamic_complexity': False, 'reinforce_intra_epochs': 1,
                 'grid_change_prob': 0.0, 'update_per_episode': True, 'algorithm': self.args.algorithm,
-                'ppo_epochs': 4, 'mini_batch_size': self.args.batch_size, 'clip_epsilon': 0.2,
+                'ppo_intra_epochs': 4, 'mini_batch_size': self.args.batch_size, 'clip_epsilon': 0.2,
                 'value_coef': 0.5, 'gae_lambda': 0.95,
             }
         }

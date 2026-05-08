@@ -71,7 +71,7 @@ class HumanAgent:
         print(f"Complexity Level: {env.complexity_level:.2f}")
         print(f"Max Steps: {env.max_steps}")
         print(f"Test epochs: {args.epochs}")
-        print(f"Episodes per epoch: {args.consecutive_episodes}")
+        print(f"Episodes per epoch: {args.reinforce_intra_epochs}")
         print("="*60)
 
         print("\n" + "="*50)
@@ -91,7 +91,7 @@ class HumanAgent:
             obs, info = env.reset()
             print(f"\n--- EPOCH {epoch+1}/{args.epochs}: New grid (Type: {env.task_class}, Complexity: {env.complexity_level:.2f}) ---")
 
-            for ep_in_epoch in range(args.consecutive_episodes):
+            for ep_in_epoch in range(args.reinforce_intra_epochs):
                 if ep_in_epoch > 0:
                     obs, info = env.soft_reset()
                     print("  Soft reset: same grid, new chance!")
@@ -100,7 +100,7 @@ class HumanAgent:
                 vid_path = Path("results/videos") / f"{vid_name}.{'gif' if args.as_gif else 'mp4'}" if args.save_video else None
                 viz = Visualizer(env, args.save_video, vid_path, args.agent_view, args.fog_of_war, args.show_trail, args.as_gif)
 
-                print(f"\nEpisode {total_episodes + 1} (epoch {epoch+1}, episode {ep_in_epoch+1}/{args.consecutive_episodes})")
+                print(f"\nEpisode {total_episodes + 1} (epoch {epoch+1}, episode {ep_in_epoch+1}/{args.reinforce_intra_epochs})")
                 episode_reward = 0
                 steps = 0
                 terminated = truncated = False

@@ -642,7 +642,7 @@ class ParallelTrainer:
             lr_min=1e-6
         )
 
-        self.consecutive_episodes = config['training']['consecutive_episodes']
+        self.reinforce_intra_epochs = config['training']['reinforce_intra_epochs']
         self.grid_change_prob = config['training']['grid_change_prob']
         self.update_per_episode = config['training']['update_per_episode']
         self._grid_pool = []   # stores grid configurations (tuples)
@@ -1211,7 +1211,7 @@ class ParallelTrainer:
                 epoch_rewards = []
 
                 # ---- Consecutive episodes loop ----
-                for ep_idx in range(self.consecutive_episodes):
+                for ep_idx in range(self.reinforce_intra_epochs):
                     if ep_idx == 0:
                         full_reset = True               # first episode always full reset
                     else:

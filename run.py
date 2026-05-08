@@ -125,7 +125,7 @@ def main():
                 "min_basic_complexity": args.min_basic_complexity,
                 "curriculum_stages": args.curriculum_stages,
                 "auxiliary_tasks": args.auxiliary_tasks,
-                "consecutive_episodes": args.consecutive_episodes,
+                "reinforce_intra_epochs": args.reinforce_intra_epochs,
                 "grid_change_prob": args.grid_change_prob,
                 "update_per_episode": args.update_per_episode
             },
@@ -133,14 +133,14 @@ def main():
 
         config['training']['algorithm'] = args.algorithm
         if args.algorithm == 'ppo':
-            config['training']['ppo_epochs'] = args.ppo_epochs
+            config['training']['ppo_intra_epochs'] = args.ppo_intra_epochs
             config['training']['mini_batch_size'] = args.mini_batch_size
             config['training']['clip_epsilon'] = args.clip_epsilon
             config['training']['value_coef'] = args.value_coef
             config['training']['gae_lambda'] = args.gae_lambda
         else:
             # These keys will still be present (set to None) to avoid KeyError
-            config['training']['ppo_epochs'] = None
+            config['training']['ppo_intra_epochs'] = None
             config['training']['mini_batch_size'] = None
             config['training']['clip_epsilon'] = None
             config['training']['value_coef'] = None
