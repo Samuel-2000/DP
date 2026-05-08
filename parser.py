@@ -142,8 +142,9 @@ def parse_args():
     if bool(args.dynamic_complexity) and bool(any([args.n_doors, args.n_buttons_per_door, args.button_break_probability])):
         raise "either use dynamic_complexity or choose door and button parameters"
 
-    if bool(args.reinforce_intra_epochs) and args.algorithm != "reinforce":
-        raise "either use dynamic_complexity or choose task_class"
+    if args.command == "train":
+        if bool(args.reinforce_intra_epochs) and args.algorithm != "reinforce":
+            raise "either use dynamic_complexity or choose task_class"
 
     elif args.command == "test":
         if bool(args.play) == bool(args.model):

@@ -38,7 +38,7 @@ class MinimalProfiler:
         config = {
             'experiment': {'name': f'profile_{self.args.task_class}', 'seed': 42, 'save_dir': 'models', 'resume': None},
             'environment': {
-                'grid_size': 11, 'max_steps': 100, 'obstacle_fraction': 0.25,
+                'grid_size': 11, 'max_steps': 100,
                 'n_food_sources': 4, 'food_energy': 10.0, 'initial_energy': 30.0,
                 'energy_decay': 0.98, 'energy_per_step': 0.1, 'render_size': 0,
                 'task_class': self.args.task_class, 'complexity_level': self.args.complexity_level,

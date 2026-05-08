@@ -16,7 +16,7 @@ from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
 from src.training.trainer import Trainer
 from src.core.constants import (
-    DEFAULT_GRID_SIZE, DEFAULT_MAX_STEPS, DEFAULT_OBSTACLE_FRACTION,
+    DEFAULT_GRID_SIZE, DEFAULT_MAX_STEPS,
     DEFAULT_FOOD_SOURCES, DEFAULT_FOOD_ENERGY, DEFAULT_INITIAL_ENERGY,
     DEFAULT_ENERGY_DECAY, DEFAULT_ENERGY_PER_STEP, DEFAULT_RENDER_SIZE,
     DEFAULT_DOOR_OPEN_DURATION, DEFAULT_DOOR_CLOSE_DURATION,
@@ -69,7 +69,6 @@ def main():
     env_config = {
         "grid_size": DEFAULT_GRID_SIZE,
         "max_steps": DEFAULT_MAX_STEPS,
-        "obstacle_fraction": DEFAULT_OBSTACLE_FRACTION,
         "n_food_sources": DEFAULT_FOOD_SOURCES,
         "food_energy": DEFAULT_FOOD_ENERGY,
         "initial_energy": DEFAULT_INITIAL_ENERGY,

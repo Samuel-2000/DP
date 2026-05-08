@@ -16,7 +16,6 @@ from src.core.environment import GridMazeWorld
 config = {
     'grid_size': 11,
     'max_steps': 100,
-    'obstacle_fraction': 0.25,
     'n_food_sources': 4,
     'food_energy': 10.0,
     'initial_energy': 30.0,

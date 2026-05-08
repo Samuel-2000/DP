@@ -1,5 +1,4 @@
-# environment.py — Ultra‑fast soft reset with shared template matcher,
-# passable cache, and all latest micro‑optimisations.
+# environment.py
 
 import numpy as np
 import cv2
@@ -28,7 +27,7 @@ _OBS_DX = np.array([-1, 0, 1, -1, 1, -1, 0, 1], dtype=np.int32)
 
 
 # ------------------------------------------------------------
-# Numba helpers (unchanged except food_step)
+# Numba helpers
 # ------------------------------------------------------------
 @njit(cache=True)
 def _label_components_numba_inplace(pass_mask: np.ndarray, labels: np.ndarray):
@@ -515,7 +514,7 @@ class FastTemplateMatcher:
 
 
 # ------------------------------------------------------------
-# GridMazeWorld – all optimizations integrated
+# GridMazeWorld
 # ------------------------------------------------------------
 class GridMazeWorld(gym.Env):
     _ring_offsets_cache = {}
@@ -567,7 +566,7 @@ class GridMazeWorld(gym.Env):
             cls._ring_offsets_cache[grid_size] = ring_offsets
         return cls._ring_offsets_cache[grid_size]
 
-    def __init__(self, grid_size: int, max_steps: int, obstacle_fraction: float,
+    def __init__(self, grid_size: int, max_steps: int,
                  n_food_sources: int, food_energy: float, initial_energy: float,
                  energy_decay: float, energy_per_step: float,
                  render_size: int, task_class: str, complexity_level: float,
@@ -578,11 +577,18 @@ class GridMazeWorld(gym.Env):
         self._ring_offsets = self._get_ring_offsets(self.grid_size)
         self.max_steps = max_steps
         self.task_class = task_class
-        self.complexity_level = 0.5 if complexity_level is None else max(0.0, min(1.0, complexity_level))
+        self.complexity_level = max(0.0, min(1.0, complexity_level))
+        
+        # ----- Obstacle count: scales linearly with complexity (0.25 → 0.75) -----
+        obstacle_fraction = 0.15 + self.complexity_level * 0.15
+        self.n_obstacles = int((grid_size - 2) ** 2 * obstacle_fraction)
+        
+        # ----- Food sources: more complex → fewer food sources -----
         p = max(0.05, 1.0 - self.complexity_level)
         extra_max = FOOD_COUNT_MAX - FOOD_COUNT_MIN
         extra = np.random.binomial(extra_max, p)
         self.n_food_sources = FOOD_COUNT_MIN + extra
+        
         self.food_energy = food_energy
         self.initial_energy = initial_energy
         self.energy_decay = energy_decay
@@ -595,7 +601,6 @@ class GridMazeWorld(gym.Env):
         self.n_buttons_per_door = n_buttons_per_door
         self.button_break_probability = button_break_probability
         self._adjust_parameters_by_task_class()
-        self.n_obstacles = int((grid_size - 2) ** 2 * obstacle_fraction)
 
         self.action_space = spaces.Discrete(NUM_ACTIONS)
         self.observation_space = spaces.Box(low=0, high=VOCAB_SIZE-1, shape=(OBSERVATION_SIZE,), dtype=np.int32)
@@ -623,7 +628,6 @@ class GridMazeWorld(gym.Env):
         self._empty_cells: List[Tuple[int, int]] = []
         self._food_coords: List[Tuple[int, int]] = []
         self._spawn_cells = None
-        self._food_coords = None
         self._door_coords = None
         self._button_coords = None
         self._info = {}
