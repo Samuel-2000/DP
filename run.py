@@ -55,7 +55,7 @@ def main():
         # Convert numeric task class back to strings if needed
         if 'task_class_history' in metrics and metrics['task_class_history'].dtype.kind in 'iuf':
             stage_map = {0.0: 'basic', 0.33: 'doors', 0.66: 'buttons', 1.0: 'complex'}
-            metrics['task_class_history'] = [stage_map.get(v, 'unknown') for v in metrics['task_class_history']]
+            metrics['task_class_history'] = [stage_map[v] for v in metrics['task_class_history']]
 
         increase_threshold = metrics.get('increase_threshold', 0.65)
         decrease_threshold = metrics.get('decrease_threshold', 0.4)

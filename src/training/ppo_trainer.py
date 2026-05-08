@@ -231,45 +231,23 @@ class PPOTrainer(ParallelTrainerBase):
                 for k, v in metrics.items():
                     metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_epochs / (total_envs / self.mini_batch_size)
 
-        # Optionally set back to eval mode after training (but not necessary)
-        # network.eval()
-
         return metrics_sum
 
     def train(self):
         """Main training loop."""
-        training_cfg = self.config['training']
-        epochs = training_cfg['epochs']
-        test_interval = training_cfg['test_interval']
-        save_interval = training_cfg['save_interval']
-        start_epoch = len(self.metrics['train_rewards'])
+        self._run_initial_test()
+        dummy = self._setup_visualization()
 
-        if not self.metrics['test_epochs']:
-            test_metrics = self._test_valid(epochs=4)
-            self.metrics['test_epochs'].append(0)
-            self.metrics['test_rewards'].append(test_metrics['reward'])
-            if test_metrics['reward'] > self.metrics['best_reward']:
-                self.metrics['best_reward'] = test_metrics['reward']
-                self._save_model('best')
-
-        # ---------- Visualisation setup ----------
-        print("\n🎮 Visualisation Controls:")
-        print("  Press 'v' to visualise current environments")
-        print("  Press 'q' to stop training early")
-        print("=" * 50)
-        cv2.namedWindow('Training Controls', cv2.WINDOW_NORMAL)
-        cv2.resizeWindow('Training Controls', 400, 100)
-        dummy = np.zeros((100, 400, 3), dtype=np.uint8)
-        cv2.putText(dummy, "Press 'v' to visualise", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
-        cv2.putText(dummy, "Press 'q' to quit", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
-        cv2.imshow('Training Controls', dummy)
-        cv2.waitKey(1)   # non‑blocking
-
-
-        pbar = tqdm(range(start_epoch, epochs), desc="PPO Epochs")
+        pbar = tqdm(range(self.start_epoch, self.epochs), desc="PPO Epochs")
         start_time = time.time()
 
         for epoch in pbar:
+            if self._should_test(epoch):
+                self._run_test(epoch)
+
+            if self._should_save(epoch):
+                self._save_checkpoint(epoch)
+        
             experiences = self._collect_rollout()
             train_metrics = self._train_step(experiences)
 
@@ -284,28 +262,13 @@ class PPOTrainer(ParallelTrainerBase):
 
             self.lr_scheduler.step()
 
+            # Hook for dynamic complexity or early stop
             if self._post_epoch_hook(epoch, dummy) is True:
                 break
 
-            if epoch % test_interval == 0 and epoch > 0:
-                test_metrics = self._test_valid(epochs=4)
-                self.metrics['test_epochs'].append(epoch)
-                self.metrics['test_rewards'].append(test_metrics['reward'])
-                if test_metrics['reward'] > self.metrics['best_reward']:
-                    self.metrics['best_reward'] = test_metrics['reward']
-                    self._save_model('best')
+            self._update_progress_bar(pbar, avg_reward)
 
-            if epoch % save_interval == 0 and epoch > 0:
-                self._save_model(f'epoch_{epoch:06d}')
-
-            pbar.set_postfix({
-                'reward': f"{avg_reward:.2f}",
-                'loss': f"{train_metrics.get('loss', 0):.4f}",
-                'best': f"{self.metrics['best_reward']:.2f}"
-            })
-
-        self._save_model('final')
-        self._save_metrics()
+        self._finalize_training()
         self._print_training_summary(start_time)
 
     def _print_training_summary(self, start_time):

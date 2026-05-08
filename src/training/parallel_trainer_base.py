@@ -235,9 +235,6 @@ class ParallelTrainerBase:
         self.base_seed = config['experiment']['seed']
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Preallocate a numpy buffer for actions to reduce CPU↔GPU transfers
-        
-
         seed_everything(self.base_seed)
 
         training_cfg = config['training']
@@ -245,6 +242,9 @@ class ParallelTrainerBase:
         self.consecutive_episodes = training_cfg['consecutive_episodes']
         self.grid_change_prob = training_cfg['grid_change_prob']
         self.update_per_episode = training_cfg['update_per_episode']
+        self.epochs = training_cfg['epochs']
+        self.test_interval = training_cfg['test_interval']
+        self.save_interval = training_cfg['save_interval']
 
         self.action_buffer = np.zeros(self.batch_size, dtype=np.int64)
         
@@ -293,6 +293,8 @@ class ParallelTrainerBase:
         if resume_path and Path(resume_path).exists():
             self._load_checkpoint(resume_path)
 
+        self.start_epoch = len(self.metrics['train_rewards'])
+
         self.vector_env = self._create_vectorized_env()
         self._grid_pool = []
 
@@ -305,7 +307,7 @@ class ParallelTrainerBase:
         if train_cfg['algorithm'] == 'ppo':
             ppo_epochs = train_cfg['ppo_epochs']
             mini_batch_size = train_cfg['mini_batch_size']
-            base += f"_pe{ppo_epochs}_mb{mini_batch_size}"
+            base += f"_pie{ppo_epochs}_mb{mini_batch_size}"
         return base
 
     def _setup_experiment_dirs(self):
@@ -453,7 +455,6 @@ class ParallelTrainerBase:
             cv2.destroyAllWindows()
             return True
 
-
         if self.dynamic and self.complexity_manager is not None:
             # Add the average reward of this epoch (if you store epoch_rewards)
             if 'epoch_rewards' in self.metrics and self.metrics['epoch_rewards']:
@@ -483,7 +484,7 @@ class ParallelTrainerBase:
         
         return False
 
-    def _test_valid(self, epochs: int = 10) -> dict:
+    def _test_valid(self, epochs: int) -> dict:
         """
         Evaluate the agent on the most difficult setting (complex stage, complexity=1.0).
         Returns average reward, success rate, and average episode length.
@@ -612,8 +613,6 @@ class ParallelTrainerBase:
         # Generate plots using the standalone function
         generate_plots_from_metrics(self.metrics, self.plots_dir, increase_threshold, decrease_threshold)
 
-
-
     def _visualize_current_environments(self, epoch: int):
         """Visualize a sample of current training environments"""
         print(f"\n📸 Visualizing environments at epoch {epoch}")
@@ -653,6 +652,75 @@ class ParallelTrainerBase:
             
         cv2.imshow('Training Visualization', combined)
         cv2.waitKey(0)
+
+    # ========== Common helper methods for training loops ==========
+
+    def _setup_visualization(self):
+        """Create control window and return dummy image."""
+        print("\n🎮 Visualisation Controls:")
+        print("  Press 'v' to visualise current environments")
+        print("  Press 'q' to stop training early")
+        print("=" * 50)
+        cv2.namedWindow('Training Controls', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('Training Controls', 400, 100)
+        dummy = np.zeros((100, 400, 3), dtype=np.uint8)
+        cv2.putText(dummy, "Press 'v' to visualise", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+        cv2.putText(dummy, "Press 'q' to quit", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
+        cv2.imshow('Training Controls', dummy)
+        cv2.waitKey(1)
+        return dummy
+
+    def _run_initial_test(self):
+        """Perform initial test if no test recorded yet."""
+        if not self.metrics['test_epochs']:
+            test_metrics = self._test_valid(epochs=4)
+            self.metrics['test_epochs'].append(0)
+            self.metrics['test_rewards'].append(test_metrics['reward'])
+            if test_metrics['reward'] > self.metrics['best_reward']:
+                self.metrics['best_reward'] = test_metrics['reward']
+                self._save_model('best')
+
+    def _should_test(self, epoch: int) -> bool:
+        """Check if a test should be run at this epoch."""
+        return (epoch > 0 and epoch % self.test_interval == 0 and
+                epoch not in self.metrics['test_epochs'])
+
+    def _run_test(self, epoch: int):
+        """Run a test and update metrics, save best model if improved."""
+        test_metrics = self._test_valid(epochs=4)
+        self.metrics['test_epochs'].append(epoch)
+        self.metrics['test_rewards'].append(test_metrics['reward'])
+        if test_metrics['reward'] > self.metrics['best_reward']:
+            self.metrics['best_reward'] = test_metrics['reward']
+            self._save_model('best')
+
+    def _should_save(self, epoch: int) -> bool:
+        """Check if a checkpoint should be saved at this epoch."""
+        return epoch > 0 and epoch % self.save_interval == 0
+
+    def _save_checkpoint(self, epoch: int):
+        """Save a periodic checkpoint."""
+        self._save_model(f'epoch_{epoch:06d}')
+
+    def _finalize_training(self):
+        """Final test, save final model, save metrics."""
+        if self.epochs not in self.metrics['test_epochs']:
+            test_metrics = self._test_valid(epochs=4)
+            self.metrics['test_epochs'].append(self.epochs)
+            self.metrics['test_rewards'].append(test_metrics['reward'])
+            if test_metrics['reward'] > self.metrics['best_reward']:
+                self.metrics['best_reward'] = test_metrics['reward']
+                self._save_model('best')
+
+        self._save_model('final')
+        self._save_metrics()
+
+    def _update_progress_bar(self, pbar, reward: float):
+        """Update tqdm progress bar with common fields."""
+        pbar.set_postfix({
+            'reward': f"{reward:.2f}",
+            'best': f"{self.metrics['best_reward']:.2f}"
+        })
 
     def train(self):
         """To be implemented by subclasses."""

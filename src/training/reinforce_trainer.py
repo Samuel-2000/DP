@@ -64,7 +64,6 @@ class ReinforceTrainer(ParallelTrainerBase):
                 probs = torch.softmax(logits, dim=-1)
                 actions = torch.multinomial(probs, 1).squeeze(-1)
 
-            #actions_np = actions.cpu().numpy()
             self.action_buffer[:] = actions.cpu().numpy()
             actions_np = self.action_buffer
             
@@ -150,37 +149,10 @@ class ReinforceTrainer(ParallelTrainerBase):
         Supports both per-episode updates and per-epoch updates (batch of episodes).
         Also handles dynamic complexity and visualisation.
         """
-        training_cfg = self.config['training']
-        epochs = training_cfg['epochs']
-        test_interval = training_cfg['test_interval']
-        save_interval = training_cfg['save_interval']
+        self._run_initial_test()
+        dummy = self._setup_visualization()
 
-        start_epoch = len(self.metrics['train_rewards'])
-        episode_counter = len(self.metrics['train_rewards'])
-
-        # Initial test
-        if not self.metrics['test_epochs']:
-            test_metrics = self._test_valid(epochs=4)
-            self.metrics['test_epochs'].append(0)
-            self.metrics['test_rewards'].append(test_metrics['reward'])
-            if test_metrics['reward'] > self.metrics['best_reward']:
-                self.metrics['best_reward'] = test_metrics['reward']
-                self._save_model('best')
-
-        # ---------- Visualisation setup ----------
-        print("\n🎮 Visualisation Controls:")
-        print("  Press 'v' to visualise current environments")
-        print("  Press 'q' to stop training early")
-        print("=" * 50)
-        cv2.namedWindow('Training Controls', cv2.WINDOW_NORMAL)
-        cv2.resizeWindow('Training Controls', 400, 100)
-        dummy = np.zeros((100, 400, 3), dtype=np.uint8)
-        cv2.putText(dummy, "Press 'v' to visualise", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
-        cv2.putText(dummy, "Press 'q' to quit", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
-        cv2.imshow('Training Controls', dummy)
-        cv2.waitKey(1)   # non‑blocking
-
-        pbar = tqdm(range(start_epoch, epochs), desc="Epochs")
+        pbar = tqdm(range(self.start_epoch, self.epochs), desc="Epochs")
         start_time = time.time()
 
         try:
@@ -192,6 +164,12 @@ class ReinforceTrainer(ParallelTrainerBase):
 
                 batched_experiences = None
                 epoch_rewards = []
+                
+                if self._should_test(epoch):
+                    self._run_test(epoch)
+
+                if self._should_save(epoch):
+                    self._save_checkpoint(epoch)
 
                 # Collect episodes (consecutive episodes on same or different grids)
                 for ep_idx in range(self.consecutive_episodes):
@@ -221,7 +199,6 @@ class ReinforceTrainer(ParallelTrainerBase):
                         self.metrics['train_rewards'].append(reward)
                         self.metrics['train_losses'].append(metrics['loss'])
                         epoch_rewards.append(reward)
-                        episode_counter += 1
                         self.lr_scheduler.step()
                     else:
                         if batched_experiences is None:
@@ -236,7 +213,6 @@ class ReinforceTrainer(ParallelTrainerBase):
                     self.metrics['train_rewards'].append(reward)
                     self.metrics['train_losses'].append(metrics['loss'])
                     epoch_rewards = [reward]
-                    episode_counter += 1
                     self.lr_scheduler.step()
 
                 avg_epoch_reward = np.mean(epoch_rewards) if epoch_rewards else 0
@@ -245,40 +221,15 @@ class ReinforceTrainer(ParallelTrainerBase):
                 if self._post_epoch_hook(epoch, dummy) is True:
                     break
 
-                # Periodic test and save
-                if epoch % test_interval == 0 and epoch > 0:
-                    test_metrics = self._test_valid(epochs=4)
-                    self.metrics['test_epochs'].append(epoch)
-                    self.metrics['test_rewards'].append(test_metrics['reward'])
-                    if test_metrics['reward'] > self.metrics['best_reward']:
-                        self.metrics['best_reward'] = test_metrics['reward']
-                        self._save_model('best')
 
-                if epoch % save_interval == 0 and epoch > 0:
-                    self._save_model(f'epoch_{epoch:06d}')
-
-                pbar.set_postfix({
-                    'reward': f"{avg_epoch_reward:.2f}",
-                    'best': f"{self.metrics['best_reward']:.2f}",
-                    'pool': len(self._grid_pool)
-                })
+                self._update_progress_bar(pbar, avg_epoch_reward)
 
         except StopIteration:
             print("\nStopped by post_epoch_hook (stagnation).")
         finally:
             cv2.destroyAllWindows()
 
-        # Final test and save
-        if epochs > 0 and epochs - 1 not in self.metrics['test_epochs']:
-            test_metrics = self._test_valid(epochs=4)
-            self.metrics['test_epochs'].append(epochs - 1)
-            self.metrics['test_rewards'].append(test_metrics['reward'])
-            if test_metrics['reward'] > self.metrics['best_reward']:
-                self.metrics['best_reward'] = test_metrics['reward']
-                self._save_model('best')
-
-        self._save_model('final')
-        self._save_metrics()
+        self._finalize_training()
         self._print_training_summary(start_time)
 
     def _print_training_summary(self, start_time):

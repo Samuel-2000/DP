@@ -31,7 +31,7 @@ def parse_args():
             python run.py plot --metrics-path ./models/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30
 
             # Resume training
-            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume models/lstm/aux/lstm_64b_0.0005lr_2026-04-28_11-35-00/lstm_64b_0.0005lr_2026-04-28_11-35-00_epoch_000100_checkpoint.pt
+            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume ./models/lstm/ppo/no_aux/64b_0.0005lr_gs11_pie1_mb64/2026-05-08_23-23-46/weights/final_checkpoint.pt
 
 
         """
@@ -60,7 +60,7 @@ def parse_args():
                             help="RL algorithm: 'reinforce' or 'ppo' (default)")
 
     # PPO specific arguments (ignored if algorithm != 'ppo')
-    train_parser.add_argument("--ppo-epochs", type=int, default=4)
+    train_parser.add_argument("--ppo-intra-epochs", type=int, default=4)
     train_parser.add_argument("--mini-batch-size", type=int, default=64)
     train_parser.add_argument("--clip-epsilon", type=float, default=0.2)
     train_parser.add_argument("--value-coef", type=float, default=0.5)

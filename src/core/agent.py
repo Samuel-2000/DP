@@ -156,11 +156,11 @@ class Agent:
             config = checkpoint['model_config']
             agent = cls(
                 network_type=config['network_type'],
-                observation_size=config.get('observation_size', OBSERVATION_SIZE),
-                action_size=config.get('action_size', ACTION_SIZE),
+                observation_size=config['observation_size'],
+                action_size=config['action_size'],
                 hidden_size=config['hidden_size'],
-                use_auxiliary=config.get('use_auxiliary', False),
-                use_value_head=config.get('use_value_head', False),
+                use_auxiliary=config['use_auxiliary'],
+                use_value_head=config['use_value_head'],
                 device=device
             )
             agent.network.load_state_dict(checkpoint['model_state_dict'], strict=False)
@@ -176,11 +176,11 @@ class Agent:
         
         agent = cls(
             network_type=cfg['network_type'],
-            observation_size=cfg.get('observation_size', OBSERVATION_SIZE),
-            action_size=cfg.get('action_size', ACTION_SIZE),
+            observation_size=cfg['observation_size'],
+            action_size=cfg['action_size'],
             hidden_size=cfg['hidden_size'],
-            use_auxiliary=cfg.get('use_auxiliary', False),
-            use_value_head=cfg.get('use_value_head', False),
+            use_auxiliary=cfg['use_auxiliary'],
+            use_value_head=cfg['use_value_head'],
             device=device
         )
         agent.network.load_state_dict(checkpoint['state_dict'], strict=False)
