@@ -14,5 +14,10 @@ __pycache__/
 *.stats
 *.prof
 
+*.pyd
+*.obj
+*.exp
+*.lib
+
 results/
 models/

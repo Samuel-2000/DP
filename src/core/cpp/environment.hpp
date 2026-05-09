@@ -56,6 +56,8 @@ public:
     // Read-only properties for Python
     int get_max_steps() const { return max_steps_; }
     float get_energy() const { return energy_; }
+    std::string get_task_class() const { return task_class_; }
+    float get_complexity_level() const { return complexity_level_; }
 
 private:
     // Parameters
@@ -110,9 +112,6 @@ private:
     std::mt19937 rng_;
 
     // Helper methods
-    std::string get_task_class() const { return task_class_; }
-    float get_complexity_level() const { return complexity_level_; }
-
     void adjustParameters();
     void placeObstaclesWithConnectivity();
     bool isConnected(const std::unordered_set<std::pair<int,int>, PairHash>& empty) const;

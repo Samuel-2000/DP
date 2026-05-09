@@ -12,7 +12,7 @@ from src.training.parallel_trainer_base import generate_plots_from_metrics
 from src.training.trainer import Trainer
 from src.core.agent import Agent
 #from core.obsolete.env_factory import EnvironmentFactory # TODO cpp version
-from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
+#from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
 
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
@@ -102,6 +102,7 @@ def ensure_cpp_module():
             sys.exit(1)
         if not check_cpp_extension():
             print("C++ module still not available after build!")
+            print("Make sure you have a C++ compiler (MSVC) and pybind11 installed.")
             sys.exit(1)
 
 def main():
@@ -231,6 +232,8 @@ def main():
         trainer.train()
 
     elif args.command == "test":
+        from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
+
         if args.play:
             # Human play mode
             agent = HumanAgent()
