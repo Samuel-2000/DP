@@ -3,7 +3,6 @@
 import sys
 from pathlib import Path
 from parser import parse_args
-from datetime import datetime
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -11,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from src.training.parallel_trainer_base import generate_plots_from_metrics
 
 from src.core.agent import Agent
-from src.core.env_factory import EnvironmentFactory
+from src.core.env_factory import EnvironmentFactory # TODO cpp version
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
 from src.training.trainer import Trainer
@@ -24,8 +23,86 @@ from src.core.constants import (
     DEFAULT_MAX_GRAD_NORM, DEFAULT_SAVE_INTERVAL, DEFAULT_TEST_INTERVAL,
 )
 
+import subprocess
+import shutil
+
+def install_requirements():
+    if not Path("requirements.txt").exists():
+        print("requirements.txt not found, skipping.")
+        return True
+    print("Installing Python requirements...")
+    result = subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        print("Requirements installed successfully!")
+        return True
+    else:
+        print("Failed to install requirements!")
+        print(result.stderr)
+        return False
+
+def check_cpp_extension():
+    try:
+        import maze_core
+        print("✓ C++ module (maze_core) is available")
+        return True
+    except ImportError as e:
+        print(f"C++ module not available: {e}")
+        return False
+
+def build_cpp_extension():
+    print("Building C++ maze core module...")
+    cpp_dir = Path(__file__).parent / "src" / "core" / "cpp"
+    if not cpp_dir.exists():
+        print(f"Error: {cpp_dir} not found!")
+        return False
+
+    original_dir = Path.cwd()
+    os.chdir(cpp_dir)
+    try:
+        # Clean previous binaries
+        for ext in ["*.so", "*.pyd", "*.dll"]:
+            for f in cpp_dir.glob(ext):
+                f.unlink()
+
+        result = subprocess.run([sys.executable, "setup.py", "build_ext", "--inplace"],
+                                capture_output=True, text=True)
+        if result.returncode == 0:
+            print("C++ module built successfully!")
+            built = [f.name for f in cpp_dir.glob("*") if f.suffix in ('.so', '.pyd', '.dll')]
+            print(f"Built files: {', '.join(built)}")
+            # Move compiled module to project root so it can be imported
+            for f in built:
+                src = cpp_dir / f
+                dst = original_dir / f
+                if dst.exists():
+                    dst.unlink()
+                shutil.move(str(src), str(dst))
+                print(f"Moved {f} → project root")
+            return True
+        else:
+            print("Build failed!")
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
+            return False
+    except Exception as e:
+        print(f"Build error: {e}")
+        return False
+    finally:
+        os.chdir(original_dir)
+
+def ensure_cpp_module():
+    if not install_requirements():
+        print("Continuing anyway...")
+    if not check_cpp_extension():
+        if not build_cpp_extension():
+            sys.exit(1)
+        if not check_cpp_extension():
+            print("C++ module still not available after build!")
+            sys.exit(1)
 
 def main():
+    ensure_cpp_module()
     args = parse_args()
     Path("models").mkdir(exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
