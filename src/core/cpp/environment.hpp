@@ -13,19 +13,16 @@
 
 namespace py = pybind11;
 
-// ----------------------------------------------------------------------
-// StepInfo – lightweight struct returned by step() (no heap allocation)
-// ----------------------------------------------------------------------
 struct StepInfo {
-    double energy;              // current agent energy (float → double for map)
-    int steps;                  // number of steps taken
-    int food_collected;         // 0/1 whether food was collected this step
-    int button_pressed;         // 0/1 whether a button was pressed this step
-    double complexity_level;    // task complexity (float)
-    int n_doors;                // total number of doors
-    int n_buttons;              // total number of buttons
-    int n_doors_active;         // doors that can still be opened
-    int n_buttons_working;      // buttons that are not broken
+    double energy;
+    int steps;
+    int food_collected;
+    int button_pressed;
+    double complexity_level;
+    int n_doors;
+    int n_buttons;
+    int n_doors_active;
+    int n_buttons_working;
 };
 
 enum class TileType : uint8_t {
@@ -52,22 +49,12 @@ public:
                   int n_doors, int door_open_duration, int door_close_duration,
                   int n_buttons_per_door, float button_break_probability);
 
-    // reset and soft_reset still return a map (infrequent, fine)
     std::tuple<std::vector<int>, std::map<std::string, double>> reset(std::optional<int> seed);
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
-
-    // Fast step: returns const ref to observation (no copy), StepInfo (no alloc)
     std::tuple<const std::vector<int>&, double, bool, bool, StepInfo> step(int action);
-
-    // Convert StepInfo to std::map<string,double> – call only when needed (e.g., for logging)
-    std::map<std::string, double> info_to_map(const StepInfo& info) const;
-
-    // Direct access to last stored StepInfo (optional)
     const StepInfo& get_last_info() const { return last_info_; }
-
     py::array_t<uint8_t> render(int render_size = 512);
 
-    // Getters for Python bindings
     int get_max_steps() const { return max_steps_; }
     float get_energy() const { return energy_; }
     std::string get_task_class() const { return task_class_; }
@@ -83,7 +70,6 @@ public:
     const std::vector<bool>& get_food_exists() const { return food_exists_cache_; }
 
 private:
-    // Parameters
     int grid_size_, max_steps_, n_food_sources_;
     float food_energy_, initial_energy_, energy_decay_, energy_per_step_;
     std::string task_class_;
@@ -94,7 +80,6 @@ private:
     int n_obstacles_;
     int total_cells_;
 
-    // Grids
     std::vector<uint8_t> grid_;
     std::vector<uint8_t> static_grid_;
     std::vector<int8_t> food_cache_;
@@ -102,19 +87,19 @@ private:
     std::vector<uint8_t> button_broken_;
     std::vector<uint8_t> passable_mask_;
 
-    // Food sources
-    struct FoodSource { int y, x, delay, exists, count; };
+    struct FoodSource { 
+        int y, x, delay, exists, count;
+        int regrow_step;          // absolute step when food regrows, -1 if exists
+    };
     std::vector<FoodSource> food_sources_;
     std::vector<bool> food_exists_cache_;
 
-    // Agent
     int agent_y_, agent_x_;
     float energy_;
     int steps_;
     bool done_;
     int last_action_;
 
-    // Doors and buttons
     struct Door {
         int y, x, open_duration, close_duration, number;
         bool requires_button, can_be_opened, is_open;
@@ -130,7 +115,6 @@ private:
     std::vector<Button> buttons_;
     int n_doors_active_, n_buttons_working_;
 
-    // Reusable buffers for algorithms
     std::vector<int> bfs_queue_;
     std::vector<int> bfs_dist_;
     std::vector<int> labels_;
@@ -143,7 +127,6 @@ private:
     std::vector<int> stack_buf_;
     std::vector<uint8_t> near_door_buf_;
 
-    // Fast food regrowth
     std::vector<int> food_cell_to_idx_;
     std::vector<int> active_pos_;
     std::vector<int> active_depleted_food_;
@@ -152,18 +135,13 @@ private:
                         std::greater<std::pair<int,int>>> regrow_heap_;
     int step_counter_;
 
-    // O(1) lookup tables for doors/buttons
     std::vector<int> button_at_cell_;
     std::vector<int> door_at_cell_;
     std::vector<int> working_buttons_per_door_;
 
-    // Reusable observation buffer (no per‑step allocation)
     mutable std::vector<int> obs_buffer_;
-
-    // Last step info (stored for optional access)
     StepInfo last_info_;
 
-    // Python bindings required lists (exposed as properties)
     std::vector<std::pair<int,int>> _food_coords;
     std::vector<std::pair<int,int>> _door_coords;
     std::vector<std::pair<int,int>> _button_coords;
@@ -181,7 +159,7 @@ private:
     bool canMoveTo(int y, int x) const { return passable_mask_[idx(y,x)] == 1; }
     int manhattanDistance(int y1, int x1, int y2, int x2) const;
     bool pressButton(int by, int bx);
-    const std::vector<int>& getObservation();   // returns reference to obs_buffer_
+    const std::vector<int>& getObservation();
 
     int computeNeighborhoodMask(int y, int x) const;
     bool matchesTemplate(int y, int x, int mask) const;

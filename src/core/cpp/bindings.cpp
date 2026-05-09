@@ -41,7 +41,6 @@ PYBIND11_MODULE(maze_core, m) {
         .def("step", &GridMazeWorld::step)          // returns tuple with StepInfo
         .def("soft_reset", &GridMazeWorld::soft_reset)
         .def("render", &GridMazeWorld::render, py::arg("render_size") = 512)
-        .def("info_to_map", &GridMazeWorld::info_to_map)   // optional dict conversion
         .def_property_readonly("max_steps", &GridMazeWorld::get_max_steps)
         .def_property_readonly("energy", &GridMazeWorld::get_energy)
         .def_property_readonly("task_class", &GridMazeWorld::get_task_class)

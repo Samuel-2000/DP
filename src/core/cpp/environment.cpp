@@ -44,9 +44,10 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
       total_cells_(gs * gs), rng_(std::random_device{}()) {
 
     float obstacle_fraction = 0.15f + cl * 0.15f;
-    n_obstacles_ = static_cast<int>((gs - 2) * (gs - 2) * obstacle_fraction);
+    int max_inner = (gs - 2) * (gs - 2);
+    n_obstacles_ = static_cast<int>(max_inner * obstacle_fraction);
 
-    // Allocate all reusable buffers once
+    // Allocate buffers
     bfs_queue_.resize(total_cells_);
     bfs_dist_.resize(total_cells_);
     labels_.resize(total_cells_);
@@ -57,20 +58,16 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
     labels_buf_.resize(total_cells_);
     near_door_buf_.resize(total_cells_);
 
-    // Food optimisation buffers – will be sized later
     if (n_food_sources_ > 0) {
         food_cell_to_idx_.assign(total_cells_, -1);
     }
 
-    // Lookup tables for O(1) button/door access
     button_at_cell_.assign(total_cells_, -1);
     door_at_cell_.assign(total_cells_, -1);
-
-    // Observation buffer – fixed size 10
     obs_buffer_.resize(10);
-    last_info_ = StepInfo{}; // zero initialise
+    last_info_ = StepInfo{};
 
-    // Adjust parameters based on task class
+    // Adjust parameters based on task class (unchanged)
     if (task_class_ == "basic") {
         n_doors_ = 0; n_buttons_per_door_ = 0; button_break_probability_ = 0.0f;
     } else if (task_class_ == "doors") {
@@ -91,83 +88,107 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
 // Optimised obstacle placement – connected free space in O(free cells)
 // ----------------------------------------------------------------------
 void GridMazeWorld::placeObstaclesWithConnectivity() {
+    // 1. Borders as obstacles
     grid_.assign(total_cells_, static_cast<uint8_t>(TileType::EMPTY));
     for (int i = 0; i < grid_size_; ++i) {
         grid_[idx(0, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
-        grid_[idx(grid_size_ - 1, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        grid_[idx(grid_size_-1, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
         grid_[idx(i, 0)] = static_cast<uint8_t>(TileType::OBSTACLE);
-        grid_[idx(i, grid_size_ - 1)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        grid_[idx(i, grid_size_-1)] = static_cast<uint8_t>(TileType::OBSTACLE);
     }
 
-    if (n_obstacles_ <= 0) return;
+    // 2. Find articulation points in the current free space (all inner cells)
+    std::vector<int> disc(total_cells_, -1);
+    std::vector<int> low(total_cells_, -1);
+    std::vector<int> parent(total_cells_, -1);
+    std::vector<bool> is_articulation(total_cells_, false);
+    int time = 0;
 
-    std::vector<int> empty_indices;
-    empty_indices.reserve(total_cells_);
-    for (int y = 1; y < grid_size_ - 1; ++y)
-        for (int x = 1; x < grid_size_ - 1; ++x)
-            if (grid_[idx(y, x)] == static_cast<uint8_t>(TileType::EMPTY))
-                empty_indices.push_back(idx(y, x));
-
-    auto is_connected = [&](const std::vector<int>& cells) -> bool {
-        if (cells.empty()) return true;
-        std::vector<uint8_t>& visited = pass_buf_;
-        std::fill(visited.begin(), visited.end(), 0);
-        int qhead = 0, qtail = 0;
-        int start = cells[0];
-        visited[start] = 1;
-        queue_buf_[qtail++] = start;
-
-        while (qhead < qtail) {
-            int cur = queue_buf_[qhead++];
-            int y = cur / grid_size_, x = cur % grid_size_;
-            if (y > 0) {
-                int nid = idx(y-1, x);
-                if (grid_[nid] == static_cast<uint8_t>(TileType::EMPTY) && !visited[nid]) {
-                    visited[nid] = 1;
-                    queue_buf_[qtail++] = nid;
-                }
-            }
-            if (y < grid_size_-1) {
-                int nid = idx(y+1, x);
-                if (grid_[nid] == static_cast<uint8_t>(TileType::EMPTY) && !visited[nid]) {
-                    visited[nid] = 1;
-                    queue_buf_[qtail++] = nid;
-                }
-            }
-            if (x > 0) {
-                int nid = idx(y, x-1);
-                if (grid_[nid] == static_cast<uint8_t>(TileType::EMPTY) && !visited[nid]) {
-                    visited[nid] = 1;
-                    queue_buf_[qtail++] = nid;
-                }
-            }
-            if (x < grid_size_-1) {
-                int nid = idx(y, x+1);
-                if (grid_[nid] == static_cast<uint8_t>(TileType::EMPTY) && !visited[nid]) {
-                    visited[nid] = 1;
-                    queue_buf_[qtail++] = nid;
-                }
+    // We need to run DFS on all free cells (inner cells, because borders are obstacles)
+    // Use a lambda that captures by reference.
+    std::function<void(int)> dfs = [&](int u) {
+        int children = 0;
+        disc[u] = low[u] = ++time;
+        int uy = u / grid_size_, ux = u % grid_size_;
+        const int dy[4] = {-1, 1, 0, 0};
+        const int dx[4] = {0, 0, -1, 1};
+        for (int d = 0; d < 4; ++d) {
+            int vy = uy + dy[d], vx = ux + dx[d];
+            if (vy < 0 || vy >= grid_size_ || vx < 0 || vx >= grid_size_) continue;
+            int v = idx(vy, vx);
+            if (grid_[v] == static_cast<uint8_t>(TileType::OBSTACLE)) continue;
+            if (disc[v] == -1) {
+                parent[v] = u;
+                ++children;
+                dfs(v);
+                low[u] = std::min(low[u], low[v]);
+                if (parent[u] == -1 && children > 1)
+                    is_articulation[u] = true;
+                if (parent[u] != -1 && low[v] >= disc[u])
+                    is_articulation[u] = true;
+            } else if (v != parent[u]) {
+                low[u] = std::min(low[u], disc[v]);
             }
         }
-        for (int c : cells) if (!visited[c]) return false;
-        return true;
     };
 
-    int placed = 0, attempts = 0;
-    const int maxAttempts = 100;
-    while (placed < n_obstacles_ && attempts < maxAttempts) {
-        ++attempts;
-        if (empty_indices.empty()) break;
-        std::uniform_int_distribution<int> dist(0, empty_indices.size() - 1);
-        int pos = dist(rng_);
-        int cell = empty_indices[pos];
-        grid_[cell] = static_cast<uint8_t>(TileType::OBSTACLE);
-        empty_indices.erase(empty_indices.begin() + pos);
-        if (is_connected(empty_indices)) {
-            ++placed;
-        } else {
-            grid_[cell] = static_cast<uint8_t>(TileType::EMPTY);
-            empty_indices.push_back(cell);
+    // Start DFS from the first inner cell (1,1) – it's always free initially
+    int start = idx(1, 1);
+    dfs(start);
+
+    // 3. Collect all non‑articulation inner cells (safe to turn into obstacles)
+    std::vector<int> safe_cells;
+    for (int y = 1; y < grid_size_-1; ++y)
+        for (int x = 1; x < grid_size_-1; ++x) {
+            int cid = idx(y, x);
+            if (!is_articulation[cid])
+                safe_cells.push_back(cid);
+        }
+
+    // 4. Randomly select up to n_obstacles_ cells from safe_cells
+    std::shuffle(safe_cells.begin(), safe_cells.end(), rng_);
+    int to_remove = std::min(n_obstacles_, (int)safe_cells.size());
+    for (int i = 0; i < to_remove; ++i) {
+        grid_[safe_cells[i]] = static_cast<uint8_t>(TileType::OBSTACLE);
+    }
+
+    // 5. Fix isolated free cells (no free neighbours)
+    //    We scan row by row, left to right. If a free cell has no free orthogonal neighbour,
+    //    we convert a neighbouring obstacle (preferring down or right) to free.
+    for (int y = 1; y < grid_size_-1; ++y) {
+        for (int x = 1; x < grid_size_-1; ++x) {
+            int cid = idx(y, x);
+            if (grid_[cid] != static_cast<uint8_t>(TileType::EMPTY)) continue;
+
+            // Check four directions
+            bool has_free_neighbour = false;
+            std::vector<int> neighbour_obstacles;
+            const int dy[4] = {-1, 1, 0, 0};
+            const int dx[4] = {0, 0, -1, 1};
+            for (int d = 0; d < 4; ++d) {
+                int ny = y + dy[d], nx = x + dx[d];
+                if (ny < 0 || ny >= grid_size_ || nx < 0 || nx >= grid_size_) continue;
+                int nid = idx(ny, nx);
+                if (grid_[nid] == static_cast<uint8_t>(TileType::EMPTY)) {
+                    has_free_neighbour = true;
+                    break;
+                } else if (grid_[nid] == static_cast<uint8_t>(TileType::OBSTACLE)) {
+                    neighbour_obstacles.push_back(nid);
+                }
+            }
+            if (!has_free_neighbour && !neighbour_obstacles.empty()) {
+                // Pick a neighbour obstacle to turn into free space.
+                // Prefer down or right to avoid double‑fixing.
+                int chosen = neighbour_obstacles[0];
+                for (int nid : neighbour_obstacles) {
+                    int ny = nid / grid_size_, nx = nid % grid_size_;
+                    if (ny > y || nx > x) { // down or right
+                        chosen = nid;
+                        break;
+                    }
+                }
+                grid_[chosen] = static_cast<uint8_t>(TileType::EMPTY);
+            }
         }
     }
 }
@@ -177,18 +198,18 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
 // ----------------------------------------------------------------------
 void GridMazeWorld::initFoodSources() {
     empty_cells_.clear();
-    for (int y = 1; y < grid_size_ - 1; ++y)
-        for (int x = 1; x < grid_size_ - 1; ++x)
-            if (grid_[idx(y, x)] == static_cast<uint8_t>(TileType::EMPTY))
+    for (int y = 1; y < grid_size_-1; ++y)
+        for (int x = 1; x < grid_size_-1; ++x)
+            if (grid_[idx(y,x)] == static_cast<uint8_t>(TileType::EMPTY))
                 empty_cells_.emplace_back(y, x);
 
     if (empty_cells_.empty()) return;
     std::shuffle(empty_cells_.begin(), empty_cells_.end(), rng_);
     int n_food = std::min(static_cast<int>(empty_cells_.size()), n_food_sources_);
     food_sources_.clear();
-    std::uniform_int_distribution<int> delayDist(10, 30);
+    std::uniform_int_distribution<int> delayDist(10,30);
 
-    float centre = (grid_size_ - 1) * 0.5f;
+    float centre = (grid_size_-1) * 0.5f;
     std::vector<float> dists(empty_cells_.size());
     for (size_t i = 0; i < empty_cells_.size(); ++i) {
         auto [y, x] = empty_cells_[i];
@@ -197,11 +218,10 @@ void GridMazeWorld::initFoodSources() {
     std::vector<int> idx_vec(empty_cells_.size());
     std::iota(idx_vec.begin(), idx_vec.end(), 0);
 
-    float p = std::max(0.05f, 1.0f - complexity_level_);
-    int n_centre = static_cast<int>((1.0f - p) * n_food);
+    int n_centre = static_cast<int>((1.0f - complexity_level_) * n_food);
     n_centre = std::max(0, std::min(n_centre, n_food));
     if (n_centre > 0) {
-        std::partial_sort(idx_vec.begin(), idx_vec.begin() + n_centre, idx_vec.end(),
+        std::partial_sort(idx_vec.begin(), idx_vec.begin()+n_centre, idx_vec.end(),
             [&](int a, int b) { return dists[a] < dists[b]; });
     }
 
@@ -211,7 +231,7 @@ void GridMazeWorld::initFoodSources() {
         if (i < n_centre)
             chosen = idx_vec[i];
         else {
-            int k = std::max(2, static_cast<int>(std::sqrt(empty_cells_.size() / std::max(n_food, 1))));
+            int k = std::max(2, static_cast<int>(std::sqrt(empty_cells_.size() / std::max(n_food,1))));
             std::uniform_int_distribution<int> offy(0, k-1), offx(0, k-1);
             int oy = offy(rng_), ox = offx(rng_);
             std::vector<int> spreadPool;
@@ -225,14 +245,14 @@ void GridMazeWorld::initFoodSources() {
                 for (size_t j = 0; j < empty_cells_.size(); ++j)
                     if (!used[j]) spreadPool.push_back(j);
             }
-            std::uniform_int_distribution<int> spd(0, spreadPool.size() - 1);
+            std::uniform_int_distribution<int> spd(0, spreadPool.size()-1);
             chosen = spreadPool[spd(rng_)];
         }
         used[chosen] = true;
         auto [y, x] = empty_cells_[chosen];
         int delay = delayDist(rng_);
-        food_sources_.push_back({y, x, delay, 1, 0});
-        grid_[idx(y, x)] = static_cast<uint8_t>(TileType::FOOD_SOURCE);
+        food_sources_.push_back({y, x, delay, 1, 0, -1});
+        grid_[idx(y,x)] = static_cast<uint8_t>(TileType::FOOD_SOURCE);
     }
 
     food_cell_to_idx_.assign(total_cells_, -1);
@@ -252,6 +272,7 @@ void GridMazeWorld::initFoodSources() {
     for (size_t i = 0; i < food_sources_.size(); ++i)
         food_exists_cache_[i] = (food_sources_[i].exists == 1);
 }
+
 
 // ----------------------------------------------------------------------
 // Door candidate search
@@ -641,6 +662,7 @@ std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::soft_
             fs.delay = std::uniform_int_distribution<int>(10,30)(rng_);
             fs.exists = 1;
             fs.count = 0;
+            fs.regrow_step = -1;
             food_cache_[idx(fs.y, fs.x)] = 1;
             food_exists_cache_[i] = true;
         }
@@ -765,7 +787,6 @@ GridMazeWorld::step(int action) {
         StepInfo info{};
         info.energy = energy_;
         info.steps = steps_;
-        // other fields zero
         return {getObservation(), 0.0, true, true, info};
     }
 
@@ -782,7 +803,7 @@ GridMazeWorld::step(int action) {
             for (int dx = -1; dx <= 1; ++dx) {
                 int ny = agent_y_ + dy, nx = agent_x_ + dx;
                 if (ny >= 0 && ny < grid_size_ && nx >= 0 && nx < grid_size_ &&
-                    static_grid_[idx(ny, nx)] == static_cast<uint8_t>(TileType::BUTTON)) {
+                    static_grid_[idx(ny,nx)] == static_cast<uint8_t>(TileType::BUTTON)) {
                     if (pressButton(ny, nx)) buttonPressed = true;
                 }
             }
@@ -811,6 +832,7 @@ GridMazeWorld::step(int action) {
                 int baseDelay = std::uniform_int_distribution<int>(10,30)(rng_);
                 int delay = static_cast<int>(baseDelay * std::pow(1.2f, fs.count));
                 fs.delay = delay;
+                fs.regrow_step = step_counter_ + delay; 
                 food_cache_[agent_cell] = 0;
                 food_exists_cache_[fi] = false;
                 regrow_heap_.emplace(step_counter_ + delay, fi);
@@ -824,6 +846,7 @@ GridMazeWorld::step(int action) {
         auto& fs = food_sources_[idxF];
         if (!fs.exists) {
             fs.exists = 1;
+            fs.regrow_step = -1;
             food_cache_[idx(fs.y, fs.x)] = 1;
             food_exists_cache_[idxF] = true;
         }
@@ -841,7 +864,6 @@ GridMazeWorld::step(int action) {
     if (action == static_cast<int>(Action::BUTTON)) reward += buttonPressed ? 0.5 : -0.1;
     if (energy_ < 10) reward -= 0.1;
 
-    // Build StepInfo – no heap allocation
     StepInfo info;
     info.energy = energy_;
     info.steps = steps_;
@@ -853,27 +875,10 @@ GridMazeWorld::step(int action) {
     info.n_doors_active = n_doors_active_;
     info.n_buttons_working = n_buttons_working_;
 
-    last_info_ = info;   // store for later optional access
-
+    last_info_ = info;
     return {getObservation(), reward, terminated, false, info};
 }
 
-// ----------------------------------------------------------------------
-// Convert StepInfo to std::map – call only when needed (e.g., logging)
-// ----------------------------------------------------------------------
-std::map<std::string, double> GridMazeWorld::info_to_map(const StepInfo& info) const {
-    std::map<std::string, double> m;
-    m["energy"] = info.energy;
-    m["steps"] = static_cast<double>(info.steps);
-    m["food_collected"] = static_cast<double>(info.food_collected);
-    m["button_pressed"] = static_cast<double>(info.button_pressed);
-    m["complexity_level"] = info.complexity_level;
-    m["n_doors"] = static_cast<double>(info.n_doors);
-    m["n_buttons"] = static_cast<double>(info.n_buttons);
-    m["n_doors_active"] = static_cast<double>(info.n_doors_active);
-    m["n_buttons_working"] = static_cast<double>(info.n_buttons_working);
-    return m;
-}
 
 // ----------------------------------------------------------------------
 // Render to OpenCV image and return as NumPy array
@@ -901,7 +906,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
 
     for (int y = 0; y < grid_size_; ++y)
         for (int x = 0; x < grid_size_; ++x) {
-            int cid = idx(y, x);
+            int cid = idx(y,x);
             TileType tile = static_cast<TileType>(static_grid_[cid]);
             bool door_open_flag = (tile == TileType::DOOR_CLOSED && door_open_[cid] == 1);
             bool button_broken_flag = (tile == TileType::BUTTON && button_broken_[cid] == 1);
@@ -909,30 +914,38 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
             cv::rectangle(img, cv::Rect(x*cell_size, y*cell_size, cell_size, cell_size), color, cv::FILLED);
         }
 
+    // ✅ Draw food sources (with countdown)
     for (const auto& fs : food_sources_) {
         int cx = fs.x * cell_size + cell_size/2;
         int cy = fs.y * cell_size + cell_size/2;
-        int r = cell_size / 3;
         if (fs.exists) {
+            int r = cell_size / 3;
             cv::circle(img, cv::Point(cx,cy), r, cv::Scalar(0,255,0), -1);
         } else {
+            int r = cell_size / 5;
             cv::circle(img, cv::Point(cx,cy), r, cv::Scalar(0,0,0), -1);
-            std::string text = std::to_string(fs.delay);
-            double fontScale = 0.4 * (cell_size / 30.0);
+            int remaining = std::max(0, fs.regrow_step - step_counter_);
+            std::string text = std::to_string(remaining);
+            double fontScale = 0.6 * (cell_size / 30.0);
             int thickness = std::max(1, cell_size / 30);
             int baseline;
             cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
-            cv::putText(img, text, cv::Point(cx - ts.width/2, cy + ts.height/2),
+            cv::putText(img, text,
+                        cv::Point(cx - ts.width/2, cy + (ts.height - baseline)/2),
                         cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
         }
     }
 
+    // ✅ Draw doors as squares
     for (const auto& d : doors_) {
-        int cx = d.x * cell_size + cell_size/2;
-        int cy = d.y * cell_size + cell_size/2;
-        int r = cell_size / 4;
+        int sz = cell_size * 3 / 5;           // square side length
+        int x0 = d.x * cell_size + (cell_size - sz) / 2;
+        int y0 = d.y * cell_size + (cell_size - sz) / 2;
         cv::Scalar color = d.is_open ? cv::Scalar(50,50,50) : cv::Scalar(200,200,200);
-        cv::circle(img, cv::Point(cx,cy), r, color, -1);
+        cv::rectangle(img, cv::Rect(x0, y0, sz, sz), color, cv::FILLED);
+
+        int cx = x0 + sz/2;
+        int cy = y0 + sz/2;
         std::string text = std::to_string(d.number);
         double fontScale = 0.6 * (cell_size / 30.0);
         int thickness = std::max(1, cell_size / 30);
@@ -942,6 +955,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
                     cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0,0,0), thickness);
     }
 
+    // Draw buttons (circles, unchanged)
     for (const auto& b : buttons_) {
         int cx = b.x * cell_size + cell_size/2;
         int cy = b.y * cell_size + cell_size/2;
@@ -950,7 +964,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
         cv::circle(img, cv::Point(cx,cy), r, color, -1);
         int doorNumber = (b.door_idx < static_cast<int>(doors_.size())) ? doors_[b.door_idx].number : 0;
         std::string text = std::to_string(doorNumber);
-        double fontScale = 0.5 * (cell_size / 30.0);
+        double fontScale = 0.6 * (cell_size / 30.0);
         int thickness = std::max(1, cell_size / 40);
         int baseline;
         cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
@@ -958,11 +972,13 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
                     cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
     }
 
+    // Agent (white circle)
     int ax = agent_x_ * cell_size + cell_size/2;
     int ay = agent_y_ * cell_size + cell_size/2;
     int r = cell_size / 2;
     cv::circle(img, cv::Point(ax,ay), r, cv::Scalar(255,255,255), -1);
 
+    // Text info (unchanged)
     std::stringstream info_ss, doors_ss;
     info_ss << std::fixed << std::setprecision(1);
     info_ss << "Energy: " << energy_ << " | Step: " << steps_ << "/" << max_steps_;
@@ -976,6 +992,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
     memcpy(result.mutable_data(), img.data, img.total() * img.elemSize());
     return result;
 }
+
 
 // ----------------------------------------------------------------------
 // Neighborhood mask and template matching

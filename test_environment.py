@@ -19,7 +19,7 @@ from src.core.utils import seed_everything
 
 # Parameters
 config = {
-    'grid_size': 11,
+    'grid_size': 79,
     'max_steps': 100,
     'n_food_sources': 4,
     'food_energy': 10.0,
