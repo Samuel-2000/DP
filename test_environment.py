@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 import cv2
 from src.core.environment import GridMazeWorld
+from src.core.utils import seed_everything
 
 # Parameters (same as your typical training)
 config = {
@@ -33,7 +34,7 @@ config = {
 
 # Fixed seed for reproducibility
 SEED = 42
-np.random.seed(SEED)
+seed_everything(SEED)
 
 # Create environment
 env = GridMazeWorld(**config)
@@ -41,8 +42,6 @@ env = GridMazeWorld(**config)
 # Reset with seed
 obs, info = env.reset(seed=SEED)
 print("Environment reset with seed", SEED)
-print(f"Doors: {len(env.doors)}, Buttons: {len(env.buttons)}")
-print(f"Agent position: {env.agent_pos}")
 
 # Render
 frame = env.render()
@@ -53,8 +52,3 @@ if frame is not None:
     print(f"Screenshot saved to {output_path}")
 else:
     print("Render returned None")
-
-# Optional: display using OpenCV (uncomment to see live)
-# cv2.imshow("Test Environment", frame)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
