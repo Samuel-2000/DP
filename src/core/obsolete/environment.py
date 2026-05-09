@@ -9,7 +9,7 @@ from typing import Tuple, Dict, Any, Optional, List
 from dataclasses import dataclass
 import math
 
-from .constants import (
+from ..constants import (
     OBSERVATION_SIZE, VOCAB_SIZE,
     Actions, NUM_ACTIONS, ENV_ACTIONS_START, ACTION_BOTTOM_VALUE, ENERGY_BOTTOM_VALUE,
     TileType, ObservationTokens, TILE_COLORS,

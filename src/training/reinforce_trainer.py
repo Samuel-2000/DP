@@ -39,7 +39,7 @@ class ReinforceTrainer(ParallelTrainerBase):
         Otherwise, soft reset (keep grid layout, only reset agent position/food).
         Returns a dictionary with batched tensors.
         """
-        max_steps = self.vector_env.envs[0].max_steps
+        max_steps = self.vector_env[0].max_steps
         self.agent.reset()
 
         if full_reset:
@@ -53,7 +53,8 @@ class ReinforceTrainer(ParallelTrainerBase):
         all_rewards = []
         all_energies = []
         all_next_obs = []
-        current_energies = [env.energy for env in self.vector_env.envs]
+        #current_energies = [env.energy for env in self.vector_env.envs]
+        current_energies = [self.vector_env[i].energy for i in range(self.batch_size)]
 
         for step in range(max_steps):
             all_obs.append(observations.clone())

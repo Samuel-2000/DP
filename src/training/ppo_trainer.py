@@ -52,7 +52,7 @@ class PPOTrainer(ParallelTrainerBase):
 
 
     def _collect_rollout(self) -> dict:
-        max_steps = self.vector_env.envs[0].max_steps
+        max_steps = self.vector_env[0].max_steps
         B = self.batch_size
         device = self.device
 

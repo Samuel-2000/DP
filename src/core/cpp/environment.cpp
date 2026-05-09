@@ -7,8 +7,8 @@
 #include <set>
 #include <unordered_map>
 
-const std::vector<std::vector<int8_t>> MazeCore::TEMPLATES = {
-    {-1, 0, -1, 1, 0, 1, -1, 0, -1}, // diagonal lines
+const std::vector<std::vector<int8_t>> GridMazeWorld::TEMPLATES = {
+    {-1, 0, -1, 1, 0, 1, -1, 0, -1},
     {-1, 1, -1, 0, 0, 0, -1, 1, -1},
     {-1, 0, 1, 0, 0, 0, 1, 0, -1},
     {1, 0, -1, 0, 0, 0, -1, 0, 1},
@@ -22,7 +22,7 @@ const std::vector<std::vector<int8_t>> MazeCore::TEMPLATES = {
     {1, 0, -1, 0, 0, 1, -1, -1, -1}
 };
 
-MazeCore::MazeCore(int gs, int ms, int nf, float fe, float ie, float ed, float eps,
+GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float ed, float eps,
                    const std::string& tc, float cl, int nd, int dod, int dcd,
                    int nbpd, float bbp)
     : grid_size_(gs), max_steps_(ms), n_food_sources_(nf), food_energy_(fe),
@@ -35,7 +35,7 @@ MazeCore::MazeCore(int gs, int ms, int nf, float fe, float ie, float ed, float e
     adjustParameters();
 }
 
-void MazeCore::adjustParameters() {
+void GridMazeWorld::adjustParameters() {
     if (task_class_ == "basic") {
         n_doors_ = 0; n_buttons_per_door_ = 0; button_break_probability_ = 0.0f;
     } else if (task_class_ == "doors") {
@@ -52,7 +52,7 @@ void MazeCore::adjustParameters() {
     }
 }
 
-bool MazeCore::isConnected(const std::unordered_set<std::pair<int,int>, PairHash>& empty) const {
+bool GridMazeWorld::isConnected(const std::unordered_set<std::pair<int,int>, PairHash>& empty) const {
     if (empty.empty()) return true;
     auto start = *empty.begin();
     std::unordered_set<std::pair<int,int>, PairHash> visited;
@@ -74,7 +74,7 @@ bool MazeCore::isConnected(const std::unordered_set<std::pair<int,int>, PairHash
     return visited.size() == empty.size();
 }
 
-void MazeCore::placeObstaclesWithConnectivity() {
+void GridMazeWorld::placeObstaclesWithConnectivity() {
     grid_.assign(grid_size_, std::vector<uint8_t>(grid_size_, static_cast<uint8_t>(TileType::EMPTY)));
     for (int i=0; i<grid_size_; ++i) {
         grid_[0][i] = static_cast<uint8_t>(TileType::OBSTACLE);
@@ -113,7 +113,7 @@ void MazeCore::placeObstaclesWithConnectivity() {
     }
 }
 
-void MazeCore::initFoodSources() {
+void GridMazeWorld::initFoodSources() {
     std::vector<std::pair<int,int>> emptyCells;
     for (int y=1; y<grid_size_-1; ++y)
         for (int x=1; x<grid_size_-1; ++x)
@@ -124,14 +124,12 @@ void MazeCore::initFoodSources() {
     int n_food = std::min((int)emptyCells.size(), n_food_sources_);
     food_sources_.clear();
     std::uniform_int_distribution<int> delayDist(10,30);
-    // compute distances to center for central bias
     float centre = (grid_size_-1) * 0.5f;
     std::vector<float> dists;
     for (auto [y,x] : emptyCells)
         dists.push_back(std::abs(y-centre) + std::abs(x-centre));
     std::vector<int> idx(emptyCells.size());
     std::iota(idx.begin(), idx.end(), 0);
-    // Complexity‑biased selection: more central when low complexity
     float p = std::max(0.05f, 1.0f - complexity_level_);
     int n_centre = static_cast<int>((1.0f - p) * n_food);
     n_centre = std::max(0, std::min(n_centre, n_food));
@@ -145,7 +143,6 @@ void MazeCore::initFoodSources() {
         if (i < n_centre)
             chosen = idx[i];
         else {
-            // spread: sample every k-th empty cell with random offset
             int k = std::max(2, static_cast<int>(std::sqrt(emptyCells.size() / std::max(n_food,1))));
             std::uniform_int_distribution<int> offsetX(0, k-1), offsetY(0, k-1);
             int oy = offsetY(rng_), ox = offsetX(rng_);
@@ -172,7 +169,7 @@ void MazeCore::initFoodSources() {
         if (fs.exists) food_cache_[fs.y][fs.x] = 1;
 }
 
-int MazeCore::computeNeighborhoodMask(int y, int x) const {
+int GridMazeWorld::computeNeighborhoodMask(int y, int x) const {
     static const int dy[9] = {-1,-1,-1, 0,0,0, 1,1,1};
     static const int dx[9] = {-1,0,1, -1,0,1, -1,0,1};
     int mask = 0;
@@ -191,7 +188,7 @@ int MazeCore::computeNeighborhoodMask(int y, int x) const {
     return mask;
 }
 
-bool MazeCore::matchesTemplate(int y, int x, int mask) const {
+bool GridMazeWorld::matchesTemplate(int y, int x, int mask) const {
     if (static_grid_[y][x] != static_cast<uint8_t>(TileType::EMPTY)) return false;
     if ((mask >> CENTER_IDX) & 1) return false;
     for (const auto& tmpl : TEMPLATES) {
@@ -207,9 +204,8 @@ bool MazeCore::matchesTemplate(int y, int x, int mask) const {
     return false;
 }
 
-std::vector<std::pair<int,int>> MazeCore::findDoorCandidates() {
+std::vector<std::pair<int,int>> GridMazeWorld::findDoorCandidates() {
     std::vector<std::pair<int,int>> candidates;
-    // Build near-door mask to avoid placing doors too close
     std::vector<std::vector<bool>> near_door(grid_size_, std::vector<bool>(grid_size_, false));
     for (int y=0; y<grid_size_; ++y)
         for (int x=0; x<grid_size_; ++x)
@@ -233,9 +229,8 @@ std::vector<std::pair<int,int>> MazeCore::findDoorCandidates() {
     return candidates;
 }
 
-bool MazeCore::canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns) {
+bool GridMazeWorld::canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns) {
     if (static_grid_[y][x] != static_cast<uint8_t>(TileType::EMPTY)) return false;
-    // compute regions separated by this door
     std::vector<std::vector<bool>> pass(grid_size_, std::vector<bool>(grid_size_, false));
     for (int i=0; i<grid_size_; ++i)
         for (int j=0; j<grid_size_; ++j) {
@@ -248,8 +243,7 @@ bool MazeCore::canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,i
                 t == static_cast<uint8_t>(TileType::BUTTON_BROKEN))
                 pass[i][j] = true;
         }
-    pass[y][x] = false; // door blocks
-    // flood fill to get components
+    pass[y][x] = false;
     std::vector<std::vector<int>> comp(grid_size_, std::vector<int>(grid_size_, 0));
     int compId = 0;
     std::queue<std::pair<int,int>> q;
@@ -274,13 +268,11 @@ bool MazeCore::canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,i
         }
     int nRegions = compId;
     if (nRegions < 2) return false;
-    // need at most n_buttons_per_door buttons
     if (n_buttons_per_door_>0 && nRegions > n_buttons_per_door_) return false;
     btns.clear();
     int maxDist = std::max(0, door_open_duration_ - 2);
     for (int region=1; region<=nRegions; ++region) {
         std::vector<std::pair<int,int>> candidates;
-        // BFS reachable from door within maxDist
         std::vector<std::vector<int>> dist(grid_size_, std::vector<int>(grid_size_, -1));
         std::queue<std::pair<int,int>> bfsq;
         bfsq.push({y,x});
@@ -311,7 +303,7 @@ bool MazeCore::canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,i
     return true;
 }
 
-void MazeCore::initDoorsAndButtons() {
+void GridMazeWorld::initDoorsAndButtons() {
     doors_.clear(); buttons_.clear();
     if (n_doors_ == 0) return;
     std::vector<std::vector<uint8_t>> current = static_grid_;
@@ -326,7 +318,6 @@ void MazeCore::initDoorsAndButtons() {
         bool placedAny = false;
         for (auto [y,x] : candidates) {
             if (placed >= n_doors_) break;
-            // check distance to existing doors
             bool tooClose = false;
             for (const auto& d : doors_)
                 if (manhattanDistance(y,x, d.y, d.x) < 3) { tooClose = true; break; }
@@ -375,7 +366,7 @@ void MazeCore::initDoorsAndButtons() {
     static_grid_ = current;
 }
 
-void MazeCore::cacheResetState() {
+void GridMazeWorld::cacheResetState() {
     _spawn_cells.clear();
     for (int y=1; y<grid_size_-1; ++y)
         for (int x=1; x<grid_size_-1; ++x)
@@ -395,7 +386,7 @@ void MazeCore::cacheResetState() {
         _button_coords.emplace_back(b.y, b.x);
 }
 
-std::tuple<std::vector<int>, std::map<std::string, double>> MazeCore::reset(std::optional<int> seed) {
+std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::reset(std::optional<int> seed) {
     if (seed) rng_.seed(*seed);
     placeObstaclesWithConnectivity();
     initFoodSources();
@@ -414,14 +405,14 @@ std::tuple<std::vector<int>, std::map<std::string, double>> MazeCore::reset(std:
     std::map<std::string, double> info;
     info["energy"] = energy_;
     info["steps"] = steps_;
-    info["task_class"] = 0.0; // not used in C++ side
+    info["task_class"] = 0.0;
     info["complexity_level"] = complexity_level_;
     info["n_doors"] = doors_.size();
     info["n_buttons"] = buttons_.size();
     return {getObservation(), info};
 }
 
-std::tuple<std::vector<int>, std::map<std::string, double>> MazeCore::soft_reset() {
+std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::soft_reset() {
     std::uniform_int_distribution<int> sd(0, _spawn_cells.size()-1);
     auto [sy,sx] = _spawn_cells[sd(rng_)];
     agent_y_ = sy; agent_x_ = sx;
@@ -429,7 +420,6 @@ std::tuple<std::vector<int>, std::map<std::string, double>> MazeCore::soft_reset
     steps_ = 0;
     done_ = false;
     last_action_ = 6;
-    // reset food sources
     for (auto& fs : food_sources_) {
         std::uniform_int_distribution<int> delayDist(10,30);
         fs.delay = delayDist(rng_);
@@ -437,12 +427,10 @@ std::tuple<std::vector<int>, std::map<std::string, double>> MazeCore::soft_reset
         fs.count = 0;
         food_cache_[fs.y][fs.x] = 1;
     }
-    // reset doors
     door_open_.assign(grid_size_, std::vector<uint8_t>(grid_size_,0));
     for (auto& d : doors_) {
         d.is_open = false; d.timer = 0; d.can_be_opened = true;
     }
-    // reset buttons
     button_broken_.assign(grid_size_, std::vector<uint8_t>(grid_size_,0));
     for (auto& b : buttons_) {
         b.is_broken = false;
@@ -458,7 +446,7 @@ std::tuple<std::vector<int>, std::map<std::string, double>> MazeCore::soft_reset
     return {getObservation(), info};
 }
 
-void MazeCore::updatePassableCache() {
+void GridMazeWorld::updatePassableCache() {
     passable_mask_.assign(grid_size_, std::vector<uint8_t>(grid_size_,0));
     for (int y=0; y<grid_size_; ++y)
         for (int x=0; x<grid_size_; ++x) {
@@ -469,19 +457,17 @@ void MazeCore::updatePassableCache() {
         }
 }
 
-bool MazeCore::canMoveTo(int y, int x) const {
+bool GridMazeWorld::canMoveTo(int y, int x) const {
     if (y<0 || y>=grid_size_ || x<0 || x>=grid_size_) return false;
     return passable_mask_[y][x] == 1;
 }
 
-void MazeCore::updateDoorStates() {
+void GridMazeWorld::updateDoorStates() {
     bool needUpdate = false;
     for (auto& d : doors_) {
         bool old = d.is_open;
-        // agent on door?
         if (agent_y_ == d.y && agent_x_ == d.x) {
             if (d.is_open) d.timer = 0;
-            // do nothing else
         } else {
             if (d.is_open) {
                 d.timer++;
@@ -505,7 +491,7 @@ void MazeCore::updateDoorStates() {
     if (needUpdate) updatePassableCache();
 }
 
-bool MazeCore::pressButton(int by, int bx) {
+bool GridMazeWorld::pressButton(int by, int bx) {
     for (auto& b : buttons_) {
         if (b.y == by && b.x == bx) {
             if (b.is_broken) return false;
@@ -514,7 +500,6 @@ bool MazeCore::pressButton(int by, int bx) {
                 if (prob(rng_) < button_break_probability_) {
                     b.is_broken = true;
                     button_broken_[by][bx] = 1;
-                    // check if all buttons for this door are broken
                     bool anyWorking = false;
                     for (const auto& other : buttons_)
                         if (other.door_idx == b.door_idx && !other.is_broken)
@@ -537,9 +522,8 @@ bool MazeCore::pressButton(int by, int bx) {
     return false;
 }
 
-std::vector<int> MazeCore::getObservation() {
+std::vector<int> GridMazeWorld::getObservation() {
     std::vector<int> obs(10);
-    // observation tokens matching Python get_observation_optimized
     static const int dy[8] = {-1,-1,-1,0,0,1,1,1};
     static const int dx[8] = {-1,0,1,-1,1,-1,0,1};
     for (int i=0; i<8; ++i) {
@@ -555,9 +539,9 @@ std::vector<int> MazeCore::getObservation() {
         }
         uint8_t t = static_grid_[ny][nx];
         if (t == static_cast<uint8_t>(TileType::DOOR_CLOSED)) {
-            obs[i] = door_open_[ny][nx] ? 5 : 4; // OPEN ->5, CLOSED->4
+            obs[i] = door_open_[ny][nx] ? 5 : 4;
         } else if (t == static_cast<uint8_t>(TileType::BUTTON)) {
-            obs[i] = 6; // NEIGHBOR_BUTTON
+            obs[i] = 6;
         } else if (t == static_cast<uint8_t>(TileType::FOOD_SOURCE)) {
             obs[i] = 2;
         } else if (t == static_cast<uint8_t>(TileType::OBSTACLE)) {
@@ -566,27 +550,25 @@ std::vector<int> MazeCore::getObservation() {
             obs[i] = 0; // EMPTY
         }
     }
-    // action token
     const int ACTION_BASE = 7;
     obs[8] = ACTION_BASE + last_action_;
-    // energy token
     const int ENERGY_BASE = 14;
     int energyLevel = static_cast<int>(energy_ * 0.05f);
-    if (energyLevel<0) energyLevel=0;
-    if (energyLevel>4) energyLevel=4;
+    if (energyLevel > 4) energyLevel = 4;
+    if (energyLevel < 0) energyLevel = 0;
     obs[9] = ENERGY_BASE + energyLevel;
     return obs;
 }
 
-void MazeCore::rebuildPassableMask() {
+void GridMazeWorld::rebuildPassableMask() {
     updatePassableCache();
 }
 
-int MazeCore::manhattanDistance(int ay, int ax, int by, int bx) const {
+int GridMazeWorld::manhattanDistance(int ay, int ax, int by, int bx) const {
     return std::abs(ay-by) + std::abs(ax-bx);
 }
 
-std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>> MazeCore::step(int action) {
+std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>> GridMazeWorld::step(int action) {
     if (done_) return {getObservation(), 0.0, true, true, {}};
     updateDoorStates();
     bool buttonPressed = false;

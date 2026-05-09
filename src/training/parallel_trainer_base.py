@@ -15,7 +15,7 @@ import cv2
 import matplotlib.pyplot as plt
 from typing import Dict, Any
 
-from src.core.env_factory_vector import VectorizedMazeEnv
+from core.obsolete.env_factory_vector import VectorizedMazeEnv
 from src.core.agent import Agent
 from src.core.utils import setup_logging, seed_everything
 from src.training.optimizers import GradientClipper, LearningRateScheduler, OptimizerFactory
@@ -380,11 +380,33 @@ class ParallelTrainerBase:
             weight_decay=train_cfg['weight_decay'],
         )
 
-    def _create_vectorized_env(self) -> VectorizedMazeEnv:
+    #def _create_vectorized_env(self) -> VectorizedMazeEnv:
+    #    env_config = self.get_environment_config()
+    #    return VectorizedMazeEnv(
+    #        num_envs=self.batch_size,
+    #        env_config=env_config,
+    #        base_seed=self.base_seed
+    #    )
+    
+    def _create_vectorized_env(self) -> "VectorizedMazeEnv":
         env_config = self.get_environment_config()
-        return VectorizedMazeEnv(
+        import maze_core
+        return maze_core.VectorizedMazeEnv(
             num_envs=self.batch_size,
-            env_config=env_config,
+            grid_size=env_config['grid_size'],
+            max_steps=env_config['max_steps'],
+            n_food_sources=env_config['n_food_sources'],
+            food_energy=env_config['food_energy'],
+            initial_energy=env_config['initial_energy'],
+            energy_decay=env_config['energy_decay'],
+            energy_per_step=env_config['energy_per_step'],
+            task_class=env_config['task_class'],
+            complexity_level=env_config['complexity_level'],
+            n_doors=env_config.get('n_doors', 0),
+            door_open_duration=env_config['door_open_duration'],
+            door_close_duration=env_config['door_close_duration'],
+            n_buttons_per_door=env_config.get('n_buttons_per_door', 0),
+            button_break_probability=env_config.get('button_break_probability', 0.0),
             base_seed=self.base_seed
         )
 
@@ -644,7 +666,7 @@ class ParallelTrainerBase:
         total_width = cols * cell_size + (cols + 1) * padding
         total_height = rows * cell_size + (rows + 1) * padding
         combined = np.zeros((total_height, total_width, 3), dtype=np.uint8)
-        
+        """
         for i in range(num_to_show):
             env = self.vector_env.envs[i]
             original_size = env.render_size
@@ -667,6 +689,8 @@ class ParallelTrainerBase:
         if self.dynamic:
             status = self.complexity_manager.get_status()
             print(f"  Stage: {status['current_stage']}, Complexity: {status['current_complexity']:.2f}")
+
+        """
             
         cv2.imshow('Training Visualization', combined)
         cv2.waitKey(0)

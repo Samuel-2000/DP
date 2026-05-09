@@ -10,10 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from src.training.parallel_trainer_base import generate_plots_from_metrics
 
 from src.core.agent import Agent
-from src.core.env_factory import EnvironmentFactory # TODO cpp version
+from core.obsolete.env_factory import EnvironmentFactory # TODO cpp version
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
-from src.training.trainer import Trainer
 from src.core.constants import (
     DEFAULT_GRID_SIZE, DEFAULT_MAX_STEPS,
     DEFAULT_FOOD_SOURCES, DEFAULT_FOOD_ENERGY, DEFAULT_INITIAL_ENERGY,
@@ -25,6 +24,7 @@ from src.core.constants import (
 
 import subprocess
 import shutil
+import os
 
 def install_requirements():
     if not Path("requirements.txt").exists():

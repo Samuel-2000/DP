@@ -1,3 +1,4 @@
+// vector_environment.cpp
 #include "vector_environment.hpp"
 #include <algorithm>
 
@@ -10,7 +11,7 @@ VectorizedMazeEnv::VectorizedMazeEnv(int num_envs,
                                int base_seed)
     : num_envs_(num_envs), base_seed_(base_seed), reset_counter_(0) {
     for (int i = 0; i < num_envs_; ++i) {
-        envs_.emplace_back(std::make_unique<MazeCore>(
+        envs_.emplace_back(std::make_unique<GridMazeWorld>(
             grid_size, max_steps, n_food_sources, food_energy,
             initial_energy, energy_decay, energy_per_step,
             task_class, complexity_level,

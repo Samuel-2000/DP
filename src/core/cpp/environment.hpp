@@ -3,11 +3,11 @@
 #include <vector>
 #include <random>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <queue>
 #include <tuple>
 #include <optional>
+#include <map>
 
 // Matches Python constants
 enum class TileType : uint8_t {
@@ -38,17 +38,22 @@ struct PairHash {
     }
 };
 
-class MazeCore {
+class GridMazeWorld {
 public:
-    MazeCore(int grid_size, int max_steps, int n_food_sources, float food_energy,
+    GridMazeWorld(int grid_size, int max_steps, int n_food_sources, float food_energy,
              float initial_energy, float energy_decay, float energy_per_step,
              const std::string& task_class, float complexity_level,
              int n_doors, int door_open_duration, int door_close_duration,
              int n_buttons_per_door, float button_break_probability);
 
+    // Public interface
     std::tuple<std::vector<int>, std::map<std::string, double>> reset(std::optional<int> seed);
     std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>> step(int action);
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
+
+    // Read-only properties for Python
+    int get_max_steps() const { return max_steps_; }
+    float get_energy() const { return energy_; }
 
 private:
     // Parameters
@@ -117,7 +122,6 @@ private:
     int manhattanDistance(int ay, int ax, int by, int bx) const;
     bool canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns);
     std::vector<std::pair<int,int>> findDoorCandidates();
-    void initDoorStructures();
 
     // Template matching
     int computeNeighborhoodMask(int y, int x) const;
