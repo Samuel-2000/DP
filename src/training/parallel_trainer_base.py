@@ -15,7 +15,9 @@ import cv2
 import matplotlib.pyplot as plt
 from typing import Dict, Any
 
-from core.obsolete.env_factory_vector import VectorizedMazeEnv
+#from core.obsolete.env_factory_vector import VectorizedMazeEnv
+
+
 from src.core.agent import Agent
 from src.core.utils import setup_logging, seed_everything
 from src.training.optimizers import GradientClipper, LearningRateScheduler, OptimizerFactory
@@ -391,6 +393,20 @@ class ParallelTrainerBase:
     def _create_vectorized_env(self) -> "VectorizedMazeEnv":
         env_config = self.get_environment_config()
         import maze_core
+
+        # Convert None to appropriate defaults
+        n_doors_val = env_config.get('n_doors')
+        if n_doors_val is None:
+            n_doors_val = 0
+        
+        n_buttons_val = env_config.get('n_buttons_per_door')
+        if n_buttons_val is None:
+            n_buttons_val = 0
+        
+        break_prob_val = env_config.get('button_break_probability')
+        if break_prob_val is None:
+            break_prob_val = 0.0
+        
         return maze_core.VectorizedMazeEnv(
             num_envs=self.batch_size,
             grid_size=env_config['grid_size'],
@@ -402,11 +418,11 @@ class ParallelTrainerBase:
             energy_per_step=env_config['energy_per_step'],
             task_class=env_config['task_class'],
             complexity_level=env_config['complexity_level'],
-            n_doors=env_config.get('n_doors', 0),
+            n_doors=n_doors_val,
             door_open_duration=env_config['door_open_duration'],
             door_close_duration=env_config['door_close_duration'],
-            n_buttons_per_door=env_config.get('n_buttons_per_door', 0),
-            button_break_probability=env_config.get('button_break_probability', 0.0),
+            n_buttons_per_door=n_buttons_val,
+            button_break_probability=break_prob_val,
             base_seed=self.base_seed
         )
 
@@ -447,6 +463,26 @@ class ParallelTrainerBase:
                 env_config.get('n_buttons_per_door'),
                 env_config.get('button_break_probability'))
 
+    #def _apply_grid_config(self, config: tuple, reset_hidden: bool = False):
+    #    seed, task_class, complexity, n_doors, n_buttons, break_prob = config
+    #    env_config = self.get_environment_config()
+    #    env_config.update({
+    #        'task_class': task_class,
+    #        'complexity_level': complexity,
+    #        'n_doors': n_doors,
+    #        'n_buttons_per_door': n_buttons,
+    #        'button_break_probability': break_prob
+    #    })
+    #    if hasattr(self, 'vector_env'):
+    #        self.vector_env.close()
+    #    self.vector_env = VectorizedMazeEnv(
+    #        num_envs=self.batch_size,
+    #        env_config=env_config,
+    #        base_seed=seed
+    #    )
+    #    if reset_hidden:
+    #        self.agent.reset()
+
     def _apply_grid_config(self, config: tuple, reset_hidden: bool = False):
         seed, task_class, complexity, n_doors, n_buttons, break_prob = config
         env_config = self.get_environment_config()
@@ -459,13 +495,33 @@ class ParallelTrainerBase:
         })
         if hasattr(self, 'vector_env'):
             self.vector_env.close()
+        
+        # Convert None to appropriate defaults
+        n_doors_val = n_doors if n_doors is not None else 0
+        n_buttons_val = n_buttons if n_buttons is not None else 0
+        break_prob_val = break_prob if break_prob is not None else 0.0
+        
         self.vector_env = VectorizedMazeEnv(
             num_envs=self.batch_size,
-            env_config=env_config,
+            grid_size=env_config['grid_size'],
+            max_steps=env_config['max_steps'],
+            n_food_sources=env_config['n_food_sources'],
+            food_energy=env_config['food_energy'],
+            initial_energy=env_config['initial_energy'],
+            energy_decay=env_config['energy_decay'],
+            energy_per_step=env_config['energy_per_step'],
+            task_class=env_config['task_class'],
+            complexity_level=env_config['complexity_level'],
+            n_doors=n_doors_val,
+            door_open_duration=env_config['door_open_duration'],
+            door_close_duration=env_config['door_close_duration'],
+            n_buttons_per_door=n_buttons_val,
+            button_break_probability=break_prob_val,
             base_seed=seed
         )
         if reset_hidden:
             self.agent.reset()
+
 
     def _post_epoch_hook(self, epoch: int, dummy):
         """
@@ -542,12 +598,48 @@ class ParallelTrainerBase:
         all_lengths = []
 
         for _ in range(epochs):
+            #test_env = VectorizedMazeEnv(
+            #    num_envs=self.batch_size,
+            #    env_config=test_env_config,
+            #    base_seed=test_seed
+            #)
+
+
+
+            # Convert None to appropriate defaults
+            n_doors_val = test_env_config.get('n_doors')
+            if n_doors_val is None:
+                n_doors_val = 0
+
+            n_buttons_val = test_env_config.get('n_buttons_per_door')
+            if n_buttons_val is None:
+                n_buttons_val = 0
+
+            break_prob_val = test_env_config.get('button_break_probability')
+            if break_prob_val is None:
+                break_prob_val = 0.0
+
+            # Unpack config dictionary to match C++ constructor
             test_env = VectorizedMazeEnv(
                 num_envs=self.batch_size,
-                env_config=test_env_config,
+                grid_size=test_env_config['grid_size'],
+                max_steps=test_env_config['max_steps'],
+                n_food_sources=test_env_config['n_food_sources'],
+                food_energy=test_env_config['food_energy'],
+                initial_energy=test_env_config['initial_energy'],
+                energy_decay=test_env_config['energy_decay'],
+                energy_per_step=test_env_config['energy_per_step'],
+                task_class=test_env_config['task_class'],
+                complexity_level=test_env_config['complexity_level'],
+                n_doors=n_doors_val,
+                door_open_duration=test_env_config['door_open_duration'],
+                door_close_duration=test_env_config['door_close_duration'],
+                n_buttons_per_door=n_buttons_val,
+                button_break_probability=break_prob_val,
                 base_seed=test_seed
             )
-            max_steps = test_env.envs[0].max_steps
+
+            max_steps = test_env_config['max_steps']
             obs_array, _ = test_env.reset()
             obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
 

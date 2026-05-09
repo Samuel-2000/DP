@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import numpy as np
 import cv2
-from core.obsolete.environment import GridMazeWorld
+#from core.obsolete.environment import GridMazeWorld
+from src.core.cpp.environment import GridMazeWorld
 from src.core.utils import seed_everything
 
 # Parameters (same as your typical training)

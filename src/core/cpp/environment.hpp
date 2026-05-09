@@ -9,6 +9,7 @@
 #include <optional>
 #include <map>
 
+
 // Matches Python constants
 enum class TileType : uint8_t {
     EMPTY = 0,
@@ -37,6 +38,7 @@ struct PairHash {
         return std::hash<T1>{}(p.first) ^ (std::hash<T2>{}(p.second) << 1);
     }
 };
+
 
 class GridMazeWorld {
 public:
@@ -89,6 +91,7 @@ private:
         int y, x, open_duration, close_duration, number;
         bool requires_button, can_be_opened, is_open;
         int timer;
+        bool open();
     };
     struct Button {
         int y, x, door_idx, number;
@@ -107,6 +110,9 @@ private:
     std::mt19937 rng_;
 
     // Helper methods
+    std::string get_task_class() const { return task_class_; }
+    float get_complexity_level() const { return complexity_level_; }
+
     void adjustParameters();
     void placeObstaclesWithConnectivity();
     bool isConnected(const std::unordered_set<std::pair<int,int>, PairHash>& empty) const;

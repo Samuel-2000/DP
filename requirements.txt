@@ -1,6 +1,6 @@
 # requirements.txt
-torch-2.11.0+cu130
-torchvision-0.26.0+cu130
+torch==2.11.0+cu130
+torchvision==0.26.0+cu130
 numpy
 gymnasium>=0.29.0
 matplotlib>=3.7.0

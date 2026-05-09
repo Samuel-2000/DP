@@ -20,6 +20,8 @@ PYBIND11_MODULE(maze_core, m) {
         .def("soft_reset", &GridMazeWorld::soft_reset)
         .def_property_readonly("max_steps", &GridMazeWorld::get_max_steps)
         .def_property_readonly("energy", &GridMazeWorld::get_energy);
+        .def_property_readonly("task_class", &GridMazeWorld::get_task_class)
+        .def_property_readonly("complexity_level", &GridMazeWorld::get_complexity_level)
 
     py::class_<VectorizedMazeEnv>(m, "VectorizedMazeEnv")
         .def(py::init<int,int,int,int,float,float,float,float,

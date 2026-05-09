@@ -9,8 +9,11 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from src.training.parallel_trainer_base import generate_plots_from_metrics
 
+from src.training.trainer import Trainer
 from src.core.agent import Agent
-from core.obsolete.env_factory import EnvironmentFactory # TODO cpp version
+#from core.obsolete.env_factory import EnvironmentFactory # TODO cpp version
+from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
+
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
 from src.core.constants import (

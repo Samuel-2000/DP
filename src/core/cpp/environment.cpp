@@ -35,6 +35,15 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
     adjustParameters();
 }
 
+bool GridMazeWorld::Door::open() {
+    if (can_be_opened) {
+        is_open = true;
+        timer = 0;
+        return true;
+    }
+    return false;
+}
+
 void GridMazeWorld::adjustParameters() {
     if (task_class_ == "basic") {
         n_doors_ = 0; n_buttons_per_door_ = 0; button_break_probability_ = 0.0f;
