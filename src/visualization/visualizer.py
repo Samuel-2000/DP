@@ -27,9 +27,10 @@ class Visualizer:
             if as_gif:
                 self.video_path = video_path
             else:
-                h, w = env.render_size, env.render_size
+                # Get render size from the environment (if available) or default to 512
+                render_size = getattr(env, 'render_size', 512)
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                self.video_writer = cv2.VideoWriter(str(video_path), fourcc, 20.0, (w, h))
+                self.video_writer = cv2.VideoWriter(str(video_path), fourcc, 20.0, (render_size, render_size))
 
     def reset(self):
         """Reset visualisation state for a new episode."""
@@ -51,8 +52,11 @@ class Visualizer:
 
         frame = raw_frame.copy()
         y, x = self.env.agent_y, self.env.agent_x
-        cell_size = self.env._cell_size
         grid_size = self.env.grid_size
+
+        # Compute cell size from the rendered image dimensions
+        # (works for both Python and C++ environments)
+        cell_size = frame.shape[0] // grid_size
 
         # Update state: mark current cell and its 3x3 neighbourhood for fog of war
         self.visited.add((int(y), int(x)))
@@ -154,22 +158,21 @@ class Visualizer:
         # Create an alpha map (single channel, 0-255)
         alpha_map = np.zeros(frame.shape[:2], dtype=np.uint8)
 
-        # Draw segments in chronological order (oldest first becomes background,
-        # newer segments overwrite – that’s fine because newer = brighter)
+        # Draw segments in chronological order
         for i in range(len(self.trail) - 1):
             y1, x1, s1 = self.trail[i]
             y2, x2, s2 = self.trail[i + 1]
 
             steps_ago = current_step - s1
             if steps_ago > trail_length:
-                continue                        # segment completely faded out, skip drawing
+                continue
 
-            # Linear fade: 1.0 for steps_ago=0 → 0.0 for steps_ago=trail_length
+            # Exponential fade (looks smoother than linear)
             alpha = int(255 * np.exp(-steps_ago / (trail_length / 3)))
             if alpha == 0:
                 continue
 
-            # Compute pixel positions, adjusted for the crop offset
+            # Compute pixel positions, adjusted for crop offset
             p1 = (int((x1 + 0.5) * cell_size) - left, int((y1 + 0.5) * cell_size) - top)
             p2 = (int((x2 + 0.5) * cell_size) - left, int((y2 + 0.5) * cell_size) - top)
 
@@ -178,6 +181,6 @@ class Visualizer:
 
         # Blend the frame with a white overlay using the alpha map
         alpha_norm = alpha_map.astype(np.float32) / 255.0
-        alpha_norm = np.expand_dims(alpha_norm, axis=2)          # shape (H, W, 1)
+        alpha_norm = np.expand_dims(alpha_norm, axis=2)
         blended = (frame.astype(np.float32) * (1 - alpha_norm) + 255 * alpha_norm).astype(np.uint8)
         return blended

@@ -14,7 +14,7 @@ from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
 from typing import Dict, Any
-
+import maze_core
 #from core.obsolete.env_factory_vector import VectorizedMazeEnv
 
 
@@ -392,7 +392,6 @@ class ParallelTrainerBase:
     
     def _create_vectorized_env(self) -> "VectorizedMazeEnv":
         env_config = self.get_environment_config()
-        import maze_core
 
         # Convert None to appropriate defaults
         n_doors_val = env_config.get('n_doors')
@@ -620,7 +619,7 @@ class ParallelTrainerBase:
                 break_prob_val = 0.0
 
             # Unpack config dictionary to match C++ constructor
-            test_env = VectorizedMazeEnv(
+            test_env = maze_core.VectorizedMazeEnv(
                 num_envs=self.batch_size,
                 grid_size=test_env_config['grid_size'],
                 max_steps=test_env_config['max_steps'],

@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
 test_environment.py - Create a single environment with fixed seed,
-render it, and save a screenshot to verify the incremental mask changes didn't break anything.
+render it, and save a screenshot using the C++ module.
 """
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# First, ensure C++ module is built and available
+from src.core.cpp_build import ensure_cpp_module
+ensure_cpp_module()
+
 import numpy as np
 import cv2
-#from core.obsolete.environment import GridMazeWorld
-from src.core.cpp.environment import GridMazeWorld
+import maze_core
 from src.core.utils import seed_everything
 
-# Parameters (same as your typical training)
+# Parameters
 config = {
     'grid_size': 11,
     'max_steps': 100,
@@ -23,8 +26,7 @@ config = {
     'initial_energy': 30.0,
     'energy_decay': 0.98,
     'energy_per_step': 0.1,
-    'render_size': 512,        # large for screenshot
-    'task_class': 'doors',     # can be 'basic', 'doors', 'buttons', 'complex'
+    'task_class': 'doors',
     'complexity_level': 1.0,
     'n_doors': 5,
     'door_open_duration': 10,
@@ -33,21 +35,31 @@ config = {
     'button_break_probability': 0.0
 }
 
-# Fixed seed for reproducibility
 SEED = 42
 seed_everything(SEED)
 
-# Create environment
-env = GridMazeWorld(**config)
+env = maze_core.GridMazeWorld(
+    grid_size=config['grid_size'],
+    max_steps=config['max_steps'],
+    n_food_sources=config['n_food_sources'],
+    food_energy=config['food_energy'],
+    initial_energy=config['initial_energy'],
+    energy_decay=config['energy_decay'],
+    energy_per_step=config['energy_per_step'],
+    task_class=config['task_class'],
+    complexity_level=config['complexity_level'],
+    n_doors=config['n_doors'],
+    door_open_duration=config['door_open_duration'],
+    door_close_duration=config['door_close_duration'],
+    n_buttons_per_door=config['n_buttons_per_door'],
+    button_break_probability=config['button_break_probability']
+)
 
-# Reset with seed
 obs, info = env.reset(seed=SEED)
 print("Environment reset with seed", SEED)
 
-# Render
-frame = env.render()
+frame = env.render(render_size=512)
 if frame is not None:
-    # Save screenshot
     output_path = Path("test_environment_screenshot.png")
     cv2.imwrite(str(output_path), frame)
     print(f"Screenshot saved to {output_path}")

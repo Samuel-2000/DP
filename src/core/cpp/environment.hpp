@@ -8,12 +8,12 @@
 #include <tuple>
 #include <optional>
 #include <map>
-
-// Forward declaration for pybind11
+#include <memory>
 #include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+
 namespace py = pybind11;
 
-// Matches Python constants
 enum class TileType : uint8_t {
     EMPTY = 0,
     OBSTACLE = 1,
@@ -50,15 +50,13 @@ public:
              int n_doors, int door_open_duration, int door_close_duration,
              int n_buttons_per_door, float button_break_probability);
 
-    // Public interface
     std::tuple<std::vector<int>, std::map<std::string, double>> reset(std::optional<int> seed);
     std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>> step(int action);
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
 
-    // Rendering
     py::array_t<uint8_t> render(int render_size = 512);
 
-    // Public getters for Python
+    // Getters
     int get_max_steps() const { return max_steps_; }
     float get_energy() const { return energy_; }
     std::string get_task_class() const { return task_class_; }
@@ -71,7 +69,7 @@ public:
     const std::vector<std::vector<uint8_t>>& get_door_open() const { return door_open_; }
     const std::vector<std::vector<uint8_t>>& get_button_broken() const { return button_broken_; }
     const std::vector<std::pair<int,int>>& get_food_coords() const { return _food_coords; }
-    const std::vector<bool>& get_food_exists() const;   // to be implemented in .cpp
+    const std::vector<bool>& get_food_exists() const { return food_exists_cache_; }
 
 private:
     // Parameters
@@ -94,6 +92,7 @@ private:
 
     struct FoodSource { int y, x, delay, exists, count; };
     std::vector<FoodSource> food_sources_;
+    mutable std::vector<bool> food_exists_cache_;   // per‑instance cache for get_food_exists
 
     // Agent state
     int agent_y_, agent_x_;
@@ -117,9 +116,14 @@ private:
     std::vector<Door> doors_;
     std::vector<Button> buttons_;
 
+    // Counters for info dict
+    int n_doors_active_;
+    int n_buttons_working_;
+
     // Pre‑allocated buffers
     std::vector<int> _regen_buffer;
     std::vector<std::pair<int,int>> _spawn_cells;
+    std::vector<std::pair<int,int>> _food_coords;
     std::vector<std::pair<int,int>> _door_coords;
     std::vector<std::pair<int,int>> _button_coords;
 
@@ -141,8 +145,7 @@ private:
     int manhattanDistance(int ay, int ax, int by, int bx) const;
     bool canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns);
     std::vector<std::pair<int,int>> findDoorCandidates();
-
-    void draw_cell(py::array_t<uint8_t>& img, int y, int x, int cell_size, TileType tile, bool is_door_open, bool is_button_broken);
+    void updateFoodExistsCache();          // refreshes food_exists_cache_
 
     // Template matching
     int computeNeighborhoodMask(int y, int x) const;

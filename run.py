@@ -7,9 +7,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from src.training.parallel_trainer_base import generate_plots_from_metrics
 
-from src.training.trainer import Trainer
+
+
 from src.core.agent import Agent
 #from core.obsolete.env_factory import EnvironmentFactory # TODO cpp version
 #from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
@@ -25,85 +25,9 @@ from src.core.constants import (
     DEFAULT_MAX_GRAD_NORM, DEFAULT_SAVE_INTERVAL, DEFAULT_TEST_INTERVAL,
 )
 
-import subprocess
-import shutil
-import os
 
-def install_requirements():
-    if not Path("requirements.txt").exists():
-        print("requirements.txt not found, skipping.")
-        return True
-    print("Installing Python requirements...")
-    result = subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
-                            capture_output=True, text=True)
-    if result.returncode == 0:
-        print("Requirements installed successfully!")
-        return True
-    else:
-        print("Failed to install requirements!")
-        print(result.stderr)
-        return False
+from src.core.cpp_build import ensure_cpp_module
 
-def check_cpp_extension():
-    try:
-        import maze_core
-        print("✓ C++ module (maze_core) is available")
-        return True
-    except ImportError as e:
-        print(f"C++ module not available: {e}")
-        return False
-
-def build_cpp_extension():
-    print("Building C++ maze core module...")
-    cpp_dir = Path(__file__).parent / "src" / "core" / "cpp"
-    if not cpp_dir.exists():
-        print(f"Error: {cpp_dir} not found!")
-        return False
-
-    original_dir = Path.cwd()
-    os.chdir(cpp_dir)
-    try:
-        # Clean previous binaries
-        for ext in ["*.so", "*.pyd", "*.dll"]:
-            for f in cpp_dir.glob(ext):
-                f.unlink()
-
-        result = subprocess.run([sys.executable, "setup.py", "build_ext", "--inplace"],
-                                capture_output=True, text=True)
-        if result.returncode == 0:
-            print("C++ module built successfully!")
-            built = [f.name for f in cpp_dir.glob("*") if f.suffix in ('.so', '.pyd', '.dll')]
-            print(f"Built files: {', '.join(built)}")
-            # Move compiled module to project root so it can be imported
-            for f in built:
-                src = cpp_dir / f
-                dst = original_dir / f
-                if dst.exists():
-                    dst.unlink()
-                shutil.move(str(src), str(dst))
-                print(f"Moved {f} → project root")
-            return True
-        else:
-            print("Build failed!")
-            print("STDOUT:", result.stdout)
-            print("STDERR:", result.stderr)
-            return False
-    except Exception as e:
-        print(f"Build error: {e}")
-        return False
-    finally:
-        os.chdir(original_dir)
-
-def ensure_cpp_module():
-    if not install_requirements():
-        print("Continuing anyway...")
-    if not check_cpp_extension():
-        if not build_cpp_extension():
-            sys.exit(1)
-        if not check_cpp_extension():
-            print("C++ module still not available after build!")
-            print("Make sure you have a C++ compiler (MSVC) and pybind11 installed.")
-            sys.exit(1)
 
 def main():
     ensure_cpp_module()
@@ -143,6 +67,7 @@ def main():
 
         # Plots go into the plots subdirectory inside the timestamp folder
         plots_dir = metrics_path.parent.parent / 'plots'
+        from src.training.parallel_trainer_base import generate_plots_from_metrics
         generate_plots_from_metrics(metrics, plots_dir, increase_threshold, decrease_threshold)
         print(f"Plots saved to {plots_dir}")
         return
@@ -228,6 +153,7 @@ def main():
             config['training']['value_coef'] = None
             config['training']['gae_lambda'] = None
             
+        from src.training.trainer import Trainer
         trainer = Trainer(config)
         trainer.train()
 

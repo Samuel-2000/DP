@@ -50,6 +50,7 @@ PYBIND11_MODULE(maze_core, m) {
         }, py::return_value_policy::reference_internal)
         .def("reset", &VectorizedMazeEnv::reset, py::arg("seed_override") = py::none())
         .def("step", &VectorizedMazeEnv::step)
-        .def("soft_reset", &VectorizedMazeEnv::soft_reset)
+        .def("soft_reset", &VectorizedMazeEnv::soft_reset)          // single env reset (keeps layout)
+        .def("soft_reset_all", &VectorizedMazeEnv::soft_reset)      // alias for the same (trainer expects this)
         .def("close", &VectorizedMazeEnv::close);
 }
