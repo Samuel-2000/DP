@@ -7,6 +7,7 @@
 #include <optional>
 #include <map>
 #include <array>
+#include <set>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <opencv2/opencv.hpp>
@@ -125,7 +126,6 @@ private:
     std::vector<int> queue_buf_;
     std::vector<int> labels_buf_;
     std::vector<int> stack_buf_;
-    std::vector<uint8_t> near_door_buf_;
 
     std::vector<int> food_cell_to_idx_;
     std::vector<int> active_pos_;
@@ -146,6 +146,12 @@ private:
     std::vector<std::pair<int,int>> _door_coords;
     std::vector<std::pair<int,int>> _button_coords;
 
+    // Articulation point analysis for the final static grid
+    std::vector<bool> is_articulation_final_;
+    std::vector<int> artic_comp_count_;
+
+    int nextDoorNumber_;
+
     std::mt19937 rng_;
 
     inline int idx(int y, int x) const { return y * grid_size_ + x; }
@@ -161,16 +167,13 @@ private:
     bool pressButton(int by, int bx);
     const std::vector<int>& getObservation();
 
-    int computeNeighborhoodMask(int y, int x) const;
-    bool matchesTemplate(int y, int x, int mask) const;
-    std::vector<std::pair<int,int>> findDoorCandidates();
-    bool canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns);
-
     void labelConnectedComponents(const std::vector<uint8_t>& pass_mask, std::vector<int>& labels, int& nlabels);
     void bfsReachable(int sy, int sx, int maxdist, const std::vector<uint8_t>& pass_mask,
                       std::vector<int>& dist, std::vector<int>& queue);
     void cacheResetState();
 
-    static const std::vector<std::vector<int8_t>> TEMPLATES;
-    static const int8_t CENTER_IDX;
+    void computeFinalArticulationPoints();
+    bool placeDoorWithButtons(int y, int x);
+    void connectIsolatedCells();
+    bool checkComponentsMinSize(int y, int x, int minEmpty);
 };

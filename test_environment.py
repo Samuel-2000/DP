@@ -19,14 +19,14 @@ from src.core.utils import seed_everything
 
 # Parameters
 config = {
-    'grid_size': 79,
+    'grid_size': 15,
     'max_steps': 100,
     'n_food_sources': 4,
     'food_energy': 10.0,
     'initial_energy': 30.0,
     'energy_decay': 0.98,
     'energy_per_step': 0.1,
-    'task_class': 'doors',
+    'task_class': 'complex',
     'complexity_level': 1.0,
     'n_doors': 5,
     'door_open_duration': 10,
