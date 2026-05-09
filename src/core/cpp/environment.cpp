@@ -22,6 +22,88 @@ const std::vector<std::vector<int8_t>> GridMazeWorld::TEMPLATES = {
     {1, 0, -1, 0, 0, 1, -1, -1, -1}
 };
 
+const std::vector<bool>& GridMazeWorld::get_food_exists() const {
+    static std::vector<bool> exists;
+    exists.resize(food_sources_.size());
+    for (size_t i = 0; i < food_sources_.size(); ++i)
+        exists[i] = (food_sources_[i].exists == 1);
+    return exists;
+}
+
+// Render method implementation
+py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
+    int cell_size = std::max(1, render_size / grid_size_);
+    int img_h = grid_size_ * cell_size;
+    int img_w = grid_size_ * cell_size;
+    // Create a 3-channel uint8 numpy array
+    py::array_t<uint8_t> img({img_h, img_w, 3});
+    auto buf = img.mutable_unchecked<3>();
+
+    // Color map (BGR order)
+    auto get_color = [](TileType t, bool door_open, bool button_broken) -> std::tuple<uint8_t,uint8_t,uint8_t> {
+        switch(t) {
+            case TileType::EMPTY:        return {40,40,40};
+            case TileType::OBSTACLE:     return {100,100,100};
+            case TileType::FOOD_SOURCE:  return {10,50,10};
+            case TileType::FOOD:         return {50,200,50};
+            case TileType::AGENT:        return {50,50,200};
+            case TileType::DOOR_CLOSED:  return door_open ? std::tuple{50,50,50} : std::tuple{200,200,200};
+            case TileType::DOOR_OPEN:    return {50,50,50};
+            case TileType::BUTTON:       return button_broken ? std::tuple{200,0,0} : std::tuple{0,0,200};
+            case TileType::BUTTON_BROKEN:return {200,0,0};
+            default: return {0,0,0};
+        }
+    };
+
+    // Draw grid cells
+    for (int y = 0; y < grid_size_; ++y) {
+        for (int x = 0; x < grid_size_; ++x) {
+            TileType tile = static_cast<TileType>(static_grid_[y][x]);
+            bool door_open = (tile == TileType::DOOR_CLOSED && door_open_[y][x] == 1);
+            bool button_broken = (tile == TileType::BUTTON && button_broken_[y][x] == 1);
+            auto [b,g,r] = get_color(tile, door_open, button_broken);
+            for (int dy = 0; dy < cell_size; ++dy) {
+                for (int dx = 0; dx < cell_size; ++dx) {
+                    int py = y * cell_size + dy;
+                    int px = x * cell_size + dx;
+                    if (py < img_h && px < img_w) {
+                        buf(py, px, 0) = b;
+                        buf(py, px, 1) = g;
+                        buf(py, px, 2) = r;
+                    }
+                }
+            }
+        }
+    }
+
+    // Draw agent (white circle)
+    int ay = agent_y_, ax = agent_x_;
+    int center_y = ay * cell_size + cell_size/2;
+    int center_x = ax * cell_size + cell_size/2;
+    int radius = std::max(1, cell_size/2);
+    for (int dy = -radius; dy <= radius; ++dy) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            if (dy*dy + dx*dx <= radius*radius) {
+                int py = center_y + dy;
+                int px = center_x + dx;
+                if (py >= 0 && py < img_h && px >= 0 && px < img_w) {
+                    buf(py, px, 0) = 255;
+                    buf(py, px, 1) = 255;
+                    buf(py, px, 2) = 255;
+                }
+            }
+        }
+    }
+
+    // Draw doors (circles with numbers) – simplified
+    // Draw buttons (small circles)
+    // Draw food sources (green circles, or black circles with timer)
+    // For brevity, this is a minimal version. You can extend.
+
+    return img;
+}
+
+
 GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float ed, float eps,
                    const std::string& tc, float cl, int nd, int dod, int dcd,
                    int nbpd, float bbp)

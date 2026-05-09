@@ -1,5 +1,6 @@
 from setuptools import setup, Extension
 import pybind11
+import numpy as np
 import platform
 
 extra_compile_args = []
@@ -11,7 +12,7 @@ else:
 ext = Extension(
     "maze_core",
     sources=["environment.cpp", "vector_environment.cpp", "bindings.cpp"],
-    include_dirs=[".", pybind11.get_include()],
+    include_dirs=[".", pybind11.get_include(), np.get_include()],
     language='c++',
     extra_compile_args=extra_compile_args,
 )

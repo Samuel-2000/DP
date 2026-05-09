@@ -9,6 +9,9 @@
 #include <optional>
 #include <map>
 
+// Forward declaration for pybind11
+#include <pybind11/pybind11.h>
+namespace py = pybind11;
 
 // Matches Python constants
 enum class TileType : uint8_t {
@@ -39,7 +42,6 @@ struct PairHash {
     }
 };
 
-
 class GridMazeWorld {
 public:
     GridMazeWorld(int grid_size, int max_steps, int n_food_sources, float food_energy,
@@ -53,11 +55,23 @@ public:
     std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>> step(int action);
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
 
-    // Read-only properties for Python
+    // Rendering
+    py::array_t<uint8_t> render(int render_size = 512);
+
+    // Public getters for Python
     int get_max_steps() const { return max_steps_; }
     float get_energy() const { return energy_; }
     std::string get_task_class() const { return task_class_; }
     float get_complexity_level() const { return complexity_level_; }
+    int get_grid_size() const { return grid_size_; }
+    int get_agent_y() const { return agent_y_; }
+    int get_agent_x() const { return agent_x_; }
+    int get_steps() const { return steps_; }
+    const std::vector<std::vector<uint8_t>>& get_static_grid() const { return static_grid_; }
+    const std::vector<std::vector<uint8_t>>& get_door_open() const { return door_open_; }
+    const std::vector<std::vector<uint8_t>>& get_button_broken() const { return button_broken_; }
+    const std::vector<std::pair<int,int>>& get_food_coords() const { return _food_coords; }
+    const std::vector<bool>& get_food_exists() const;   // to be implemented in .cpp
 
 private:
     // Parameters
@@ -127,6 +141,8 @@ private:
     int manhattanDistance(int ay, int ax, int by, int bx) const;
     bool canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns);
     std::vector<std::pair<int,int>> findDoorCandidates();
+
+    void draw_cell(py::array_t<uint8_t>& img, int y, int x, int cell_size, TileType tile, bool is_door_open, bool is_button_broken);
 
     // Template matching
     int computeNeighborhoodMask(int y, int x) const;
