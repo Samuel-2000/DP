@@ -41,7 +41,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         if 'test_epochs' in metrics and len(metrics['test_epochs']) == len(test_rewards):
             test_epochs = metrics['test_epochs']
         else:
-            # fallback for old checkpoints
             test_interval = max(1, len(rewards) // len(test_rewards))
             test_epochs = np.arange(0, len(test_rewards) * test_interval, test_interval)
         ax.plot(test_epochs, test_rewards, 'g-o', linewidth=1.5, markersize=6, label='Test Reward')
@@ -50,6 +49,16 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     ax.set_ylabel('Reward')
     ax.grid(True, alpha=0.3)
     ax.legend()
+
+    # Add total training time annotation
+    total_seconds = metrics.get('total_training_time', 0.0)
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    time_str = f"Total time: {hours:02d}:{minutes:02d}:{seconds:02d}"
+    ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+            fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+
     save_plot(fig, 'rewards')
 
     # ---- 2. Training Losses (total + policy) ----
@@ -62,6 +71,16 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     ax.set_ylabel('Loss')
     ax.legend()
     ax.grid(True, alpha=0.3)
+
+    # Add total training time annotation
+    total_seconds = metrics.get('total_training_time', 0.0)
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    time_str = f"Total time: {hours:02d}:{minutes:02d}:{seconds:02d}"
+    ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+            fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+
     save_plot(fig, 'losses')
 
     # ---- 3. Auxiliary Losses ----
@@ -119,7 +138,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         window = max(1, len(metrics['train_rewards']) // len(scores))
         perf_epochs = np.arange(len(scores)) * window
         complexities = np.array(metrics['complexity_history'])
-        # Ensure indices are within bounds
         valid_mask = perf_epochs < len(complexities)
         perf_epochs = perf_epochs[valid_mask]
         scores = scores[:len(perf_epochs)]
@@ -144,7 +162,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
                 start = split
             if start < len(perf_epochs):
                 ax.plot(perf_epochs[start:], scores[start:], color=colors[len(change_indices) % 2], linewidth=1.5)
-            # Threshold lines
             ax.axhline(increase_threshold, color='green', linestyle='--', alpha=0.7, label=f'Increase ({increase_threshold})')
             ax.axhline(decrease_threshold, color='red', linestyle='--', alpha=0.7, label=f'Decrease ({decrease_threshold})')
             ax.legend()
@@ -160,7 +177,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         fig, ax = plt.subplots(figsize=(8, 5))
         complexities = np.array(metrics['complexity_history'])
         rewards_raw = np.array(metrics['train_rewards'])
-        # Ensure same length
         min_len = min(len(complexities), len(rewards_raw))
         complexities = complexities[:min_len]
         rewards_raw = rewards_raw[:min_len]
@@ -277,13 +293,14 @@ class ParallelTrainerBase:
             'test_epochs': [],
             'test_rewards': [],
             'best_reward': -np.inf,
-            'timing': {'collection': [], 'training': []}
+            'total_training_time': 0.0,   # cumulative training time across runs
         }
+        self.training_start_time = None   # for tracking current session
+
         if self.dynamic:
             self.metrics['complexity_history'] = []
             self.metrics['task_class_history'] = []
             self.metrics['performance_scores'] = []
-        # Optional auxiliary metrics
         if self.agent.use_auxiliary:
             self.metrics['aux_losses'] = []
             self.metrics['energy_losses'] = []
@@ -327,7 +344,6 @@ class ParallelTrainerBase:
         self.experiment_dir = base_dir / date_subfolder
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create subdirectories
         self.weights_dir = self.experiment_dir / 'weights'
         self.metrics_dir = self.experiment_dir / 'metrics'
         self.plots_dir = self.experiment_dir / 'plots'
@@ -371,16 +387,11 @@ class ParallelTrainerBase:
         )
 
     def get_environment_config(self) -> dict:
-        """
-        Return the current environment configuration.
-        If dynamic complexity is enabled, this reflects the current stage and complexity.
-        """
         if self.dynamic:
             base = self.config['environment'].copy()
             base['task_class'] = self.complexity_manager.get_current_task_class()
             base['complexity_level'] = self.complexity_manager.get_current_complexity()
             stage = base['task_class']
-            # Set door/button parameters according to stage (None means auto-compute)
             if stage == 'basic':
                 base['n_doors'] = 0
                 base['n_buttons_per_door'] = 0
@@ -402,7 +413,6 @@ class ParallelTrainerBase:
             return self.config['environment'].copy()
 
     def _generate_grid_config(self) -> tuple:
-        """Generate a new random grid configuration based on current environment settings."""
         env_config = self.get_environment_config()
         import random
         seed = random.randint(0, 2**31 - 1)
@@ -414,10 +424,6 @@ class ParallelTrainerBase:
                 env_config.get('button_break_probability'))
 
     def _apply_grid_config(self, config: tuple, reset_hidden: bool = False):
-        """
-        Recreate the vectorized environment with a specific grid configuration.
-        If reset_hidden is True, also reset the agent's internal state (LSTM/transformer memory).
-        """
         seed, task_class, complexity, n_doors, n_buttons, break_prob = config
         env_config = self.get_environment_config()
         env_config.update({
@@ -443,8 +449,6 @@ class ParallelTrainerBase:
         If dynamic complexity is enabled, it updates the performance history,
         checks for complexity adjustments or stage switches, and records metrics.
         """
-
-        # Handle key presses
         key = cv2.waitKey(1) & 0xFF
         if key == ord('v'):
             self._visualize_current_environments(epoch)
@@ -456,11 +460,9 @@ class ParallelTrainerBase:
             return True
 
         if self.dynamic and self.complexity_manager is not None:
-            # Add the average reward of this epoch (if you store epoch_rewards)
             if 'epoch_rewards' in self.metrics and self.metrics['epoch_rewards']:
                 avg_reward = self.metrics['epoch_rewards'][-1]
             elif self.metrics['train_rewards']:
-                # fallback: use last train reward (if reinforce_intra_epochs=1)
                 avg_reward = self.metrics['train_rewards'][-1]
             else:
                 return
@@ -484,11 +486,19 @@ class ParallelTrainerBase:
         
         return False
 
+    def _start_training_timer(self):
+        """Start or resume the cumulative training timer."""
+        if self.training_start_time is None:
+            self.training_start_time = time.time()
+
+    def _finalise_total_training_time(self):
+        """Compute final cumulative training time and store in metrics."""
+        if self.training_start_time is not None:
+            elapsed = time.time() - self.training_start_time
+            self.metrics['total_training_time'] += elapsed
+            self.training_start_time = None
+
     def _test_valid(self, epochs: int) -> dict:
-        """
-        Evaluate the agent on the most difficult setting (complex stage, complexity=1.0).
-        Returns average reward, success rate, and average episode length.
-        """
         self.agent.network.eval()
         test_env_config = self.config['environment'].copy()
         test_env_config['task_class'] = 'complex'
@@ -511,7 +521,6 @@ class ParallelTrainerBase:
 
             with torch.no_grad():
                 for step in range(max_steps):
-                    # Get action logits (network may return tuple if auxiliary or value head)
                     output = self.agent.network(obs_t)
                     if isinstance(output, tuple):
                         output = output[0]
@@ -534,7 +543,6 @@ class ParallelTrainerBase:
         }
 
     def _save_model(self, name: str):
-        """Save the agent (best/final) and a full checkpoint for resuming."""
         agent_path = self.weights_dir / f"{name}.pt"
         self.agent.save(str(agent_path))
         self.logger.info(f"Saved agent to {agent_path}")
@@ -570,9 +578,12 @@ class ParallelTrainerBase:
         self.logger.info(f"Saved checkpoint to {checkpoint_path}")
 
     def _load_checkpoint(self, path: str):
-        """Load training state from a checkpoint file."""
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.metrics = checkpoint['metrics']
+        if 'total_training_time' not in self.metrics:
+            self.metrics['total_training_time'] = 0.0
+        self.training_start_time = None
+
         self.optimizer.load_state_dict(checkpoint['optimizer_state'])
         self.lr_scheduler.load_state_dict(checkpoint['scheduler_state'])
         self.agent.network.load_state_dict(checkpoint['model_state_dict'], strict=False)
@@ -582,26 +593,20 @@ class ParallelTrainerBase:
             self.complexity_manager.performance_history = deque(cm_state['performance_history'],
                                                                 maxlen=self.complexity_manager.performance_window)
             self.complexity_manager.adjustments_made = cm_state['adjustments_made']
-            # Restore other fields as needed (stage_complexities, etc.)
         self.logger.info(f"Resumed from {path} at epoch {len(self.metrics['train_rewards'])}")
 
     def _save_metrics(self):
-        """Save all metrics to a .npz file. Converts task class strings to numbers for dynamic runs."""
-        increase_threshold = self.config['training'].get('complexity_increase_threshold', 0.65)
-        decrease_threshold = self.config['training'].get('complexity_decrease_threshold', 0.4)
         save_dict = {
             'train_rewards': self.metrics['train_rewards'],
             'train_losses': self.metrics['train_losses'],
             'test_epochs': self.metrics['test_epochs'],
             'test_rewards': self.metrics['test_rewards'],
-            'increase_threshold': increase_threshold,
-            'decrease_threshold': decrease_threshold,
+            'total_training_time': self.metrics['total_training_time'],
         }
         if self.dynamic:
-            save_dict['complexity_history'] = self.metrics['complexity_history']
-            # Convert task class strings to numeric values
             stage_map = {'basic': 0.0, 'doors': 0.33, 'buttons': 0.66, 'complex': 1.0}
             task_numeric = [stage_map.get(s, 0.0) for s in self.metrics['task_class_history']]
+            save_dict['complexity_history'] = self.metrics['complexity_history']
             save_dict['task_class_history'] = task_numeric
             save_dict['performance_scores'] = self.metrics['performance_scores']
         if 'aux_losses' in self.metrics:
@@ -610,11 +615,11 @@ class ParallelTrainerBase:
             save_dict['obs_losses'] = self.metrics['obs_losses']
         np.savez(self.metrics_path, **save_dict)
 
-        # Generate plots using the standalone function
+        increase_threshold = self.config['training'].get('complexity_increase_threshold', 0.65)
+        decrease_threshold = self.config['training'].get('complexity_decrease_threshold', 0.4)
         generate_plots_from_metrics(self.metrics, self.plots_dir, increase_threshold, decrease_threshold)
 
     def _visualize_current_environments(self, epoch: int):
-        """Visualize a sample of current training environments"""
         print(f"\n📸 Visualizing environments at epoch {epoch}")
 
         num_to_show = min(4, len(self.vector_env.envs))
@@ -628,7 +633,6 @@ class ParallelTrainerBase:
         
         for i in range(num_to_show):
             env = self.vector_env.envs[i]
-            # Force render by temporarily setting render_size
             original_size = env.render_size
             env.render_size = cell_size
             if hasattr(env, '_render_buffer'):
@@ -653,10 +657,7 @@ class ParallelTrainerBase:
         cv2.imshow('Training Visualization', combined)
         cv2.waitKey(0)
 
-    # ========== Common helper methods for training loops ==========
-
     def _setup_visualization(self):
-        """Create control window and return dummy image."""
         print("\n🎮 Visualisation Controls:")
         print("  Press 'v' to visualise current environments")
         print("  Press 'q' to stop training early")
@@ -671,7 +672,6 @@ class ParallelTrainerBase:
         return dummy
 
     def _run_initial_test(self):
-        """Perform initial test if no test recorded yet."""
         if not self.metrics['test_epochs']:
             test_metrics = self._test_valid(epochs=4)
             self.metrics['test_epochs'].append(0)
@@ -681,12 +681,10 @@ class ParallelTrainerBase:
                 self._save_model('best')
 
     def _should_test(self, epoch: int) -> bool:
-        """Check if a test should be run at this epoch."""
         return (epoch > 0 and epoch % self.test_interval == 0 and
                 epoch not in self.metrics['test_epochs'])
 
     def _run_test(self, epoch: int):
-        """Run a test and update metrics, save best model if improved."""
         test_metrics = self._test_valid(epochs=4)
         self.metrics['test_epochs'].append(epoch)
         self.metrics['test_rewards'].append(test_metrics['reward'])
@@ -695,15 +693,12 @@ class ParallelTrainerBase:
             self._save_model('best')
 
     def _should_save(self, epoch: int) -> bool:
-        """Check if a checkpoint should be saved at this epoch."""
         return epoch > 0 and epoch % self.save_interval == 0
 
     def _save_checkpoint(self, epoch: int):
-        """Save a periodic checkpoint."""
         self._save_model(f'epoch_{epoch:06d}')
 
     def _finalize_training(self):
-        """Final test, save final model, save metrics."""
         if self.epochs not in self.metrics['test_epochs']:
             test_metrics = self._test_valid(epochs=4)
             self.metrics['test_epochs'].append(self.epochs)
@@ -716,12 +711,10 @@ class ParallelTrainerBase:
         self._save_metrics()
 
     def _update_progress_bar(self, pbar, reward: float):
-        """Update tqdm progress bar with common fields."""
         pbar.set_postfix({
             'reward': f"{reward:.2f}",
             'best': f"{self.metrics['best_reward']:.2f}"
         })
 
     def train(self):
-        """To be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement train()")

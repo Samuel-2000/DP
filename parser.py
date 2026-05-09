@@ -143,8 +143,8 @@ def parse_args():
         raise "either use dynamic_complexity or choose door and button parameters"
 
     if args.command == "train":
-        if bool(args.reinforce_intra_epochs) and args.algorithm != "reinforce":
-            raise "either use dynamic_complexity or choose task_class"
+        if args.reinforce_intra_epochs > 1 and args.algorithm != "reinforce":
+            raise "reinforce_intra_epochs can be used only during testing or reinforce training"
 
     elif args.command == "test":
         if bool(args.play) == bool(args.model):

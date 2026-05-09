@@ -239,6 +239,7 @@ class PPOTrainer(ParallelTrainerBase):
         dummy = self._setup_visualization()
 
         pbar = tqdm(range(self.start_epoch, self.epochs), desc="PPO Epochs")
+        self._start_training_timer()
         start_time = time.time()
 
         for epoch in pbar:
@@ -268,6 +269,7 @@ class PPOTrainer(ParallelTrainerBase):
 
             self._update_progress_bar(pbar, avg_reward)
 
+        self._finalise_total_training_time()
         self._finalize_training()
         self._print_training_summary(start_time)
 

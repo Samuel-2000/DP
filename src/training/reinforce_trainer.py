@@ -153,6 +153,7 @@ class ReinforceTrainer(ParallelTrainerBase):
         dummy = self._setup_visualization()
 
         pbar = tqdm(range(self.start_epoch, self.epochs), desc="Epochs")
+        self._start_training_timer()
         start_time = time.time()
 
         try:
@@ -229,6 +230,7 @@ class ReinforceTrainer(ParallelTrainerBase):
         finally:
             cv2.destroyAllWindows()
 
+        self._finalise_total_training_time()
         self._finalize_training()
         self._print_training_summary(start_time)
 
