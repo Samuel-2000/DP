@@ -57,9 +57,10 @@ class PPOTrainer(ParallelTrainerBase):
         device = self.device
 
         obs_array, _ = self.vector_env.reset()
+        # Convert obs_array to numpy array (C++ returns list of lists)
+        obs_array = np.array(obs_array, dtype=np.int64)
         self.agent.reset()
 
-        # Copy into pre-allocated tensor (non-blocking)
         self.obs_tensor.copy_(
             torch.from_numpy(obs_array).unsqueeze(1).to(device, non_blocking=True)
         )
@@ -85,60 +86,55 @@ class PPOTrainer(ParallelTrainerBase):
                 logits = outputs[0].squeeze(1)      # [B, A]
                 value = outputs[-1].squeeze(1)      # [B]
 
-                # Sample actions without Categorical (avoids overhead)
                 probs = torch.softmax(logits, dim=-1)
-                actions = torch.multinomial(probs, 1).squeeze(-1)   # [B]
+                actions = torch.multinomial(probs, 1).squeeze(-1)
 
-                # Store observations (clone because buffer is reused)
                 storage['obs'][step] = self.obs_tensor.squeeze(1).clone()
                 storage['actions'][step] = actions
                 storage['logits'][step] = logits
                 storage['values'][step] = value
 
-                # Transfer actions to CPU using pre-allocated buffer
                 actions_cpu = actions.cpu().numpy()
                 self.action_buffer[:] = actions_cpu
                 actions_np = self.action_buffer
 
-                # Step environments
-                obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
+                # Step environments – returns lists from C++
+                obs_array, rewards_list, terminated_list, truncated_list, infos = self.vector_env.step(actions_np)
+                
+                # Convert to numpy arrays
+                obs_array = np.array(obs_array, dtype=np.int64)
+                rewards = np.array(rewards_list, dtype=np.float32)
+                terminated = np.array(terminated_list, dtype=bool)
+                truncated = np.array(truncated_list, dtype=bool)
                 dones = terminated | truncated
 
-                # Copy rewards into pre-allocated tensor and store a clone
                 self.reward_tensor.copy_(torch.from_numpy(rewards).to(device, non_blocking=True))
-                storage['rewards'][step] = self.reward_tensor.clone()   # CRITICAL: clone
+                storage['rewards'][step] = self.reward_tensor.clone()
 
-                # Copy dones into pre-allocated tensor and store a clone
                 self.done_tensor.copy_(torch.from_numpy(dones).to(device, non_blocking=True))
-                storage['dones'][step] = self.done_tensor.clone()       # CRITICAL: clone
+                storage['dones'][step] = self.done_tensor.clone()
 
-                # Auxiliary energy targets if needed
                 if self.agent.use_auxiliary:
                     energies = [info.get('energy', 0.0) for info in infos]
-                    # Ensure self.energy_tensor exists (add in __init__ if needed)
                     if not hasattr(self, 'energy_tensor'):
                         self.energy_tensor = torch.empty(B, dtype=torch.float32, device=device)
                     self.energy_tensor.copy_(torch.from_numpy(np.array(energies)).to(device, non_blocking=True))
-                    storage['energies'][step] = self.energy_tensor.clone()   # CRITICAL: clone
+                    storage['energies'][step] = self.energy_tensor.clone()
 
-                # Prepare next observation
+                # Prepare next observation (now obs_array is numpy)
                 self.obs_tensor.copy_(torch.from_numpy(obs_array).unsqueeze(1).to(device, non_blocking=True))
 
-                # Early break if all environments are done
                 if dones.all():
-                    # Truncate storage to actual number of steps
                     for k in storage:
                         storage[k] = storage[k][:step+1]
                     break
 
-        # Stack all collected data into tensors
         for k in storage:
             storage[k] = torch.stack(storage[k], dim=1)
 
-        storage['values'] = storage['values'].squeeze(-1)   # [B, T]
+        storage['values'] = storage['values'].squeeze(-1)
 
         mask = torch.ones_like(storage['rewards'])
-
         advantages, returns = self.ppo_loss_fn.compute_gae(
             storage['rewards'],
             storage['values'],

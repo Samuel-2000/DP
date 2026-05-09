@@ -500,7 +500,7 @@ class ParallelTrainerBase:
         n_buttons_val = n_buttons if n_buttons is not None else 0
         break_prob_val = break_prob if break_prob is not None else 0.0
         
-        self.vector_env = VectorizedMazeEnv(
+        self.vector_env = maze_core.VectorizedMazeEnv(
             num_envs=self.batch_size,
             grid_size=env_config['grid_size'],
             max_steps=env_config['max_steps'],
@@ -649,12 +649,21 @@ class ParallelTrainerBase:
                 for step in range(max_steps):
                     logits = self.agent.network(obs_t).squeeze(1)
                     actions = logits.argmax(dim=-1).cpu().numpy()
-                    obs_array, r, terminated, truncated, _ = test_env.step(actions)
+                    
+                    # ---- FIX: Convert C++ outputs to numpy arrays ----
+                    obs_array, r_list, terminated_list, truncated_list, _ = test_env.step(actions)
+                    r = np.array(r_list, dtype=np.float32)
+                    terminated = np.array(terminated_list, dtype=bool)
+                    truncated = np.array(truncated_list, dtype=bool)
+                    dones = terminated | truncated
+                    # ------------------------------------------------
+                    
                     obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
                     rewards += r
                     lengths += 1
-                    if (terminated | truncated).all():
+                    if dones.all():
                         break
+
             test_env.close()
             all_rewards.extend(rewards)
             all_lengths.extend(lengths)
@@ -746,10 +755,12 @@ class ParallelTrainerBase:
         decrease_threshold = self.config['training'].get('complexity_decrease_threshold', 0.4)
         generate_plots_from_metrics(self.metrics, self.plots_dir, increase_threshold, decrease_threshold)
 
+    # Fix for parallel_trainer_base.py - _visualize_current_environments method
+
     def _visualize_current_environments(self, epoch: int):
         print(f"\n📸 Visualizing environments at epoch {epoch}")
 
-        num_to_show = min(4, len(self.vector_env.envs))
+        num_to_show = min(4, len(self.vector_env))  # C++ supports len()
         cell_size = 256
         padding = 10
         cols = 2
@@ -757,15 +768,11 @@ class ParallelTrainerBase:
         total_width = cols * cell_size + (cols + 1) * padding
         total_height = rows * cell_size + (rows + 1) * padding
         combined = np.zeros((total_height, total_width, 3), dtype=np.uint8)
-        """
+        
         for i in range(num_to_show):
-            env = self.vector_env.envs[i]
-            original_size = env.render_size
-            env.render_size = cell_size
-            if hasattr(env, '_render_buffer'):
-                env._render_buffer = None
-            frame = super(type(env), env).render()
-            env.render_size = original_size
+            env = self.vector_env[i]  # C++ env access by index
+            # Render directly with desired size (C++ render method takes size argument)
+            frame = env.render(cell_size)  # returns numpy array (H,W,3)
             if frame is None:
                 frame = np.zeros((cell_size, cell_size, 3), dtype=np.uint8)
                 cv2.putText(frame, f"Env {i}", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255),2)
@@ -781,8 +788,6 @@ class ParallelTrainerBase:
             status = self.complexity_manager.get_status()
             print(f"  Stage: {status['current_stage']}, Complexity: {status['current_complexity']:.2f}")
 
-        """
-            
         cv2.imshow('Training Visualization', combined)
         cv2.waitKey(0)
 

@@ -67,17 +67,25 @@ class ReinforceTrainer(ParallelTrainerBase):
 
             self.action_buffer[:] = actions.cpu().numpy()
             actions_np = self.action_buffer
+
+            # Step the environment – returns lists from C++
+            obs_array, r_list, terminated_list, truncated_list, infos = self.vector_env.step(actions_np)
             
-            obs_array, rewards, terminated, truncated, infos = self.vector_env.step(actions_np)
+            # Convert to numpy arrays for vector operations
+            r = np.array(r_list, dtype=np.float32)
+            terminated = np.array(terminated_list, dtype=bool)
+            truncated = np.array(truncated_list, dtype=bool)
+            dones = terminated | truncated
+            
             next_obs_tensor = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
 
             all_actions.append(actions)
-            all_rewards.append(torch.tensor(rewards, dtype=torch.float32, device=self.device))
+            all_rewards.append(torch.tensor(r, dtype=torch.float32, device=self.device))
             all_next_obs.append(next_obs_tensor.clone())
             current_energies = [info.get('energy', 0.0) for info in infos]
             observations = next_obs_tensor
 
-            if (terminated | truncated).all():
+            if dones.all():
                 break
 
         return {
