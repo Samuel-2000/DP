@@ -60,8 +60,15 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
     // Food optimisation buffers – will be sized later
     if (n_food_sources_ > 0) {
         food_cell_to_idx_.assign(total_cells_, -1);
-        // active_pos_ and active_depleted_food_ sized in initFoodSources()
     }
+
+    // Lookup tables for O(1) button/door access
+    button_at_cell_.assign(total_cells_, -1);
+    door_at_cell_.assign(total_cells_, -1);
+
+    // Observation buffer – fixed size 10
+    obs_buffer_.resize(10);
+    last_info_ = StepInfo{}; // zero initialise
 
     // Adjust parameters based on task class
     if (task_class_ == "basic") {
@@ -84,7 +91,6 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
 // Optimised obstacle placement – connected free space in O(free cells)
 // ----------------------------------------------------------------------
 void GridMazeWorld::placeObstaclesWithConnectivity() {
-    // Start with all interior cells empty, border obstacle
     grid_.assign(total_cells_, static_cast<uint8_t>(TileType::EMPTY));
     for (int i = 0; i < grid_size_; ++i) {
         grid_[idx(0, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
@@ -95,7 +101,6 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
 
     if (n_obstacles_ <= 0) return;
 
-    // Collect all empty interior cells
     std::vector<int> empty_indices;
     empty_indices.reserve(total_cells_);
     for (int y = 1; y < grid_size_ - 1; ++y)
@@ -103,10 +108,9 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
             if (grid_[idx(y, x)] == static_cast<uint8_t>(TileType::EMPTY))
                 empty_indices.push_back(idx(y, x));
 
-    // BFS connectivity test using pre‑allocated buffers
     auto is_connected = [&](const std::vector<int>& cells) -> bool {
         if (cells.empty()) return true;
-        std::vector<uint8_t>& visited = pass_buf_;  // reuse buffer
+        std::vector<uint8_t>& visited = pass_buf_;
         std::fill(visited.begin(), visited.end(), 0);
         int qhead = 0, qtail = 0;
         int start = cells[0];
@@ -167,6 +171,7 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
         }
     }
 }
+
 // ----------------------------------------------------------------------
 // Food source initialisation – also builds fast lookup maps
 // ----------------------------------------------------------------------
@@ -230,7 +235,6 @@ void GridMazeWorld::initFoodSources() {
         grid_[idx(y, x)] = static_cast<uint8_t>(TileType::FOOD_SOURCE);
     }
 
-    // Initialise fast lookup structures
     food_cell_to_idx_.assign(total_cells_, -1);
     for (size_t i = 0; i < food_sources_.size(); ++i) {
         const auto& fs = food_sources_[i];
@@ -250,7 +254,7 @@ void GridMazeWorld::initFoodSources() {
 }
 
 // ----------------------------------------------------------------------
-// Door candidate search – uses empty_cells_ cache and near_door_buf_
+// Door candidate search
 // ----------------------------------------------------------------------
 std::vector<std::pair<int,int>> GridMazeWorld::findDoorCandidates() {
     std::vector<std::pair<int,int>> candidates;
@@ -377,7 +381,7 @@ void GridMazeWorld::labelConnectedComponents(const std::vector<uint8_t>& pass_ma
 }
 
 // ----------------------------------------------------------------------
-// Check door placement viability – uses reusable buffers
+// Check door placement viability
 // ----------------------------------------------------------------------
 bool GridMazeWorld::canPlaceDoorWithButtons(int y, int x, std::vector<std::pair<int,int>>& btns) {
     if (grid_[idx(y, x)] != static_cast<uint8_t>(TileType::EMPTY)) return false;
@@ -484,15 +488,50 @@ void GridMazeWorld::initDoorsAndButtons() {
 }
 
 // ----------------------------------------------------------------------
-// Update passable cache (doors open/closed)
+// One‑time initialisation of passable_mask_
 // ----------------------------------------------------------------------
-void GridMazeWorld::updatePassableCache() {
+void GridMazeWorld::initPassableCache() {
     passable_mask_.resize(total_cells_);
     for (int i = 0; i < total_cells_; ++i) {
         uint8_t t = static_grid_[i];
-        bool isObstacle = (t == static_cast<uint8_t>(TileType::OBSTACLE));
-        bool isClosedDoor = (t == static_cast<uint8_t>(TileType::DOOR_CLOSED) && door_open_[i] == 0);
-        passable_mask_[i] = (!isObstacle && !isClosedDoor) ? 1 : 0;
+        bool blocked = (t == static_cast<uint8_t>(TileType::OBSTACLE) ||
+                        (t == static_cast<uint8_t>(TileType::DOOR_CLOSED)));
+        passable_mask_[i] = blocked ? 0 : 1;
+    }
+    for (const auto& d : doors_) {
+        if (d.is_open) passable_mask_[idx(d.y, d.x)] = 1;
+    }
+}
+
+// ----------------------------------------------------------------------
+// Incremental door state update – only changes one cell when a door toggles
+// ----------------------------------------------------------------------
+inline void GridMazeWorld::setDoorOpen(int doorIdx, bool open) {
+    Door& d = doors_[doorIdx];
+    if (d.is_open == open) return;
+    d.is_open = open;
+    d.timer = 0;
+    int cid = idx(d.y, d.x);
+    door_open_[cid] = open ? 1 : 0;
+    passable_mask_[cid] = open ? 1 : 0;
+}
+
+void GridMazeWorld::updateDoorStates() {
+    for (int i = 0; i < (int)doors_.size(); ++i) {
+        Door& d = doors_[i];
+        if (agent_y_ == d.y && agent_x_ == d.x) {
+            if (d.is_open) d.timer = 0;
+            continue;
+        }
+        if (d.is_open) {
+            if (++d.timer >= d.open_duration) {
+                setDoorOpen(i, false);
+            }
+        } else if (!d.requires_button && d.can_be_opened) {
+            if (++d.timer >= d.close_duration) {
+                setDoorOpen(i, true);
+            }
+        }
     }
 }
 
@@ -514,7 +553,6 @@ void GridMazeWorld::cacheResetState() {
                 spawn_cells_.emplace_back(y, x);
 
     if (spawn_cells_.empty()) {
-        // Fallback: any non‑obstacle cell
         for (int y = 0; y < grid_size_; ++y)
             for (int x = 0; x < grid_size_; ++x)
                 if (static_grid_[idx(y, x)] != static_cast<uint8_t>(TileType::OBSTACLE))
@@ -535,7 +573,6 @@ void GridMazeWorld::cacheResetState() {
 std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::reset(std::optional<int> seed) {
     if (seed) rng_.seed(*seed);
 
-    // Reset food optimisation buffers
     if (n_food_sources_ > 0) {
         std::fill(food_cell_to_idx_.begin(), food_cell_to_idx_.end(), -1);
         active_depleted_food_.clear();
@@ -553,11 +590,20 @@ std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::reset
     static_grid_ = grid_;
 
     initDoorsAndButtons();
-    for (const auto& d : doors_)
-        static_grid_[idx(d.y, d.x)] = static_cast<uint8_t>(TileType::DOOR_CLOSED);
-    for (const auto& b : buttons_)
-        static_grid_[idx(b.y, b.x)] = static_cast<uint8_t>(TileType::BUTTON);
 
+    std::fill(button_at_cell_.begin(), button_at_cell_.end(), -1);
+    std::fill(door_at_cell_.begin(), door_at_cell_.end(), -1);
+    working_buttons_per_door_.assign(doors_.size(), 0);
+    for (size_t i = 0; i < doors_.size(); ++i) {
+        door_at_cell_[idx(doors_[i].y, doors_[i].x)] = (int)i;
+    }
+    for (size_t i = 0; i < buttons_.size(); ++i) {
+        const auto& b = buttons_[i];
+        button_at_cell_[idx(b.y, b.x)] = (int)i;
+        if (!b.is_broken) ++working_buttons_per_door_[b.door_idx];
+    }
+
+    initPassableCache();
     cacheResetState();
 
     std::uniform_int_distribution<int> sd(0, static_cast<int>(spawn_cells_.size())-1);
@@ -570,24 +616,23 @@ std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::reset
     n_doors_active_ = static_cast<int>(doors_.size());
     n_buttons_working_ = static_cast<int>(buttons_.size());
 
-    updatePassableCache();
-
     std::map<std::string, double> info;
     info["energy"] = energy_;
     info["steps"] = steps_;
     info["complexity_level"] = complexity_level_;
-    info["n_doors"] = doors_.size();
-    info["n_buttons"] = buttons_.size();
-    info["n_doors_active"] = n_doors_active_;
-    info["n_buttons_working"] = n_buttons_working_;
-    return {getObservation(), info};
+    info["n_doors"] = static_cast<double>(doors_.size());
+    info["n_buttons"] = static_cast<double>(buttons_.size());
+    info["n_doors_active"] = static_cast<double>(n_doors_active_);
+    info["n_buttons_working"] = static_cast<double>(n_buttons_working_);
+
+    std::vector<int> obs_copy = getObservation();
+    return {std::move(obs_copy), info};
 }
 
 // ----------------------------------------------------------------------
 // Soft reset – keep same layout but reposition agent and regrow food
 // ----------------------------------------------------------------------
 std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::soft_reset() {
-    // Reset food active lists
     if (n_food_sources_ > 0) {
         active_depleted_food_.clear();
         std::fill(active_pos_.begin(), active_pos_.end(), -1);
@@ -601,7 +646,6 @@ std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::soft_
         }
     }
 
-    
     while (!regrow_heap_.empty()) regrow_heap_.pop();
     step_counter_ = 0;
 
@@ -626,141 +670,112 @@ std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::soft_
     n_doors_active_ = static_cast<int>(doors_.size());
     n_buttons_working_ = static_cast<int>(buttons_.size());
 
-    updatePassableCache();
+    std::fill(working_buttons_per_door_.begin(), working_buttons_per_door_.end(), 0);
+    for (size_t i = 0; i < buttons_.size(); ++i) {
+        if (!buttons_[i].is_broken) ++working_buttons_per_door_[buttons_[i].door_idx];
+    }
+
+    initPassableCache();
 
     std::map<std::string, double> info;
     info["energy"] = energy_;
     info["steps"] = steps_;
     info["complexity_level"] = complexity_level_;
-    info["n_doors"] = doors_.size();
-    info["n_buttons"] = buttons_.size();
-    info["n_doors_active"] = n_doors_active_;
-    info["n_buttons_working"] = n_buttons_working_;
-    return {getObservation(), info};
+    info["n_doors"] = static_cast<double>(doors_.size());
+    info["n_buttons"] = static_cast<double>(buttons_.size());
+    info["n_doors_active"] = static_cast<double>(n_doors_active_);
+    info["n_buttons_working"] = static_cast<double>(n_buttons_working_);
+
+    std::vector<int> obs_copy = getObservation();
+    return {std::move(obs_copy), info};
 }
 
 // ----------------------------------------------------------------------
-// Update door states (open/close timers)
-// ----------------------------------------------------------------------
-void GridMazeWorld::updateDoorStates() {
-    bool needUpdate = false;
-    for (auto& d : doors_) {
-        bool old = d.is_open;
-        if (agent_y_ == d.y && agent_x_ == d.x) {
-            if (d.is_open) d.timer = 0;
-        } else {
-            if (d.is_open) {
-                ++d.timer;
-                if (d.timer >= d.open_duration) {
-                    d.is_open = false;
-                    d.timer = 0;
-                }
-            } else if (!d.requires_button) {
-                ++d.timer;
-                if (d.timer >= d.close_duration) {
-                    d.is_open = true;
-                    d.timer = 0;
-                }
-            }
-        }
-        if (d.is_open != old) {
-            door_open_[idx(d.y, d.x)] = d.is_open ? 1 : 0;
-            needUpdate = true;
-        }
-    }
-    if (needUpdate) updatePassableCache();
-}
-
-// ----------------------------------------------------------------------
-// Press a button – may break if probability > 0
+// Press a button – O(1) using button_at_cell_ lookup
 // ----------------------------------------------------------------------
 bool GridMazeWorld::pressButton(int by, int bx) {
-    for (auto& b : buttons_) {
-        if (b.y == by && b.x == bx) {
-            if (b.is_broken) return false;
-            if (button_break_probability_ > 0) {
-                std::uniform_real_distribution<float> prob(0,1);
-                if (prob(rng_) < button_break_probability_) {
-                    b.is_broken = true;
-                    button_broken_[idx(by, bx)] = 1;
-                    --n_buttons_working_;
-                    bool anyWorking = false;
-                    for (const auto& other : buttons_)
-                        if (other.door_idx == b.door_idx && !other.is_broken)
-                            anyWorking = true;
-                    if (!anyWorking && b.door_idx < static_cast<int>(doors_.size())) {
-                        doors_[b.door_idx].can_be_opened = false;
-                        --n_doors_active_;
-                    }
-                    return false;
-                }
+    int cid = idx(by, bx);
+    int bi = button_at_cell_[cid];
+    if (bi < 0) return false;
+    Button& b = buttons_[bi];
+    if (b.is_broken) return false;
+
+    if (button_break_probability_ > 0.0f) {
+        std::uniform_real_distribution<float> prob(0.0f, 1.0f);
+        if (prob(rng_) < button_break_probability_) {
+            b.is_broken = true;
+            button_broken_[cid] = 1;
+            if (--working_buttons_per_door_[b.door_idx] == 0) {
+                doors_[b.door_idx].can_be_opened = false;
+                --n_doors_active_;
             }
-            if (b.door_idx < static_cast<int>(doors_.size())) {
-                if (doors_[b.door_idx].open()) {
-                    door_open_[idx(doors_[b.door_idx].y, doors_[b.door_idx].x)] = 1;
-                    updatePassableCache();
-                    return true;
-                }
-            }
-            break;
+            return false;
         }
+    }
+
+    if (b.door_idx < (int)doors_.size() && doors_[b.door_idx].can_be_opened) {
+        setDoorOpen(b.door_idx, true);
+        return true;
     }
     return false;
 }
 
 // ----------------------------------------------------------------------
-// Get observation vector (8 directions + action + energy level)
+// Get observation vector – no heap allocation
 // ----------------------------------------------------------------------
-std::vector<int> GridMazeWorld::getObservation() {
-    std::vector<int> obs(10);
+const std::vector<int>& GridMazeWorld::getObservation() {
     static const int dy[8] = {-1,-1,-1,0,0,1,1,1};
     static const int dx[8] = {-1,0,1,-1,1,-1,0,1};
     for (int i = 0; i < 8; ++i) {
         int ny = agent_y_ + dy[i], nx = agent_x_ + dx[i];
         if (ny < 0 || ny >= grid_size_ || nx < 0 || nx >= grid_size_) {
-            obs[i] = 1;
+            obs_buffer_[i] = 1;
             continue;
         }
         int cid = idx(ny, nx);
         if (food_cache_[cid] == 1) {
-            obs[i] = 3;
+            obs_buffer_[i] = 3;
             continue;
         }
         uint8_t t = static_grid_[cid];
         if (t == static_cast<uint8_t>(TileType::DOOR_CLOSED))
-            obs[i] = door_open_[cid] ? 5 : 4;
+            obs_buffer_[i] = door_open_[cid] ? 5 : 4;
         else if (t == static_cast<uint8_t>(TileType::BUTTON))
-            obs[i] = 6;
+            obs_buffer_[i] = 6;
         else if (t == static_cast<uint8_t>(TileType::FOOD_SOURCE))
-            obs[i] = 2;
+            obs_buffer_[i] = 2;
         else if (t == static_cast<uint8_t>(TileType::OBSTACLE))
-            obs[i] = 1;
+            obs_buffer_[i] = 1;
         else
-            obs[i] = 0;
+            obs_buffer_[i] = 0;
     }
-    obs[8] = 7 + last_action_;
+    obs_buffer_[8] = 7 + last_action_;
     int energyLevel = static_cast<int>(energy_ * 0.05f);
     energyLevel = std::clamp(energyLevel, 0, 4);
-    obs[9] = 14 + energyLevel;
-    return obs;
+    obs_buffer_[9] = 14 + energyLevel;
+    return obs_buffer_;
 }
 
 // ----------------------------------------------------------------------
-// Main step function – uses active depletion list for food
+// Main step function – returns const ref to observation and StepInfo (no map)
 // ----------------------------------------------------------------------
-std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>>
+std::tuple<const std::vector<int>&, double, bool, bool, StepInfo>
 GridMazeWorld::step(int action) {
-    if (done_) return {getObservation(), 0.0, true, true, {}};
+    if (done_) {
+        StepInfo info{};
+        info.energy = energy_;
+        info.steps = steps_;
+        // other fields zero
+        return {getObservation(), 0.0, true, true, info};
+    }
 
-    // 1. Update door states (unchanged)
     updateDoorStates();
 
-    // 2. Handle button press or movement
     bool buttonPressed = false;
     bool moved = false;
     int y = agent_y_, x = agent_x_;
     int agent_cell = idx(y, x);
-    step_counter_++;   // absolute step count for regrowth
+    step_counter_++;
 
     if (action == static_cast<int>(Action::BUTTON)) {
         for (int dy = -1; dy <= 1; ++dy)
@@ -784,7 +799,6 @@ GridMazeWorld::step(int action) {
         agent_cell = idx(y, x);
     }
 
-    // 3. Food collection (only if moved)
     float energy_gained = 0.0f;
     if (moved && !food_sources_.empty()) {
         int fi = food_cell_to_idx_[agent_cell];
@@ -794,35 +808,27 @@ GridMazeWorld::step(int action) {
                 fs.exists = 0;
                 energy_gained += food_energy_;
                 ++fs.count;
-
-                // Compute delay (same as before)
                 int baseDelay = std::uniform_int_distribution<int>(10,30)(rng_);
                 int delay = static_cast<int>(baseDelay * std::pow(1.2f, fs.count));
-
-                fs.delay = delay;   // still stored for rendering
+                fs.delay = delay;
                 food_cache_[agent_cell] = 0;
                 food_exists_cache_[fi] = false;
-
-                // Schedule regrowth at (step_counter_ + delay)
                 regrow_heap_.emplace(step_counter_ + delay, fi);
             }
         }
     }
 
-    // 4. Process regrowth events that are due now
     while (!regrow_heap_.empty() && regrow_heap_.top().first <= step_counter_) {
         int idxF = regrow_heap_.top().second;
         regrow_heap_.pop();
         auto& fs = food_sources_[idxF];
-        if (!fs.exists) {   // still depleted
+        if (!fs.exists) {
             fs.exists = 1;
             food_cache_[idx(fs.y, fs.x)] = 1;
             food_exists_cache_[idxF] = true;
-            // Note: fs.delay is kept for rendering but no longer used for logic
         }
     }
 
-    // 5. Energy update (unchanged)
     energy_ = energy_ * energy_decay_ + energy_gained - energy_per_step_;
     energy_ = std::clamp(energy_, 0.0f, 100.0f);
     ++steps_;
@@ -830,25 +836,43 @@ GridMazeWorld::step(int action) {
     bool terminated = (steps_ >= max_steps_ || energy_ <= 0);
     done_ = terminated;
 
-    // 6. Reward (unchanged)
     double reward = 0.01;
     if (energy_gained > 0) reward += 1.0;
     if (action == static_cast<int>(Action::BUTTON)) reward += buttonPressed ? 0.5 : -0.1;
     if (energy_ < 10) reward -= 0.1;
 
-    // 7. Info (unchanged)
-    std::map<std::string, double> info;
-    info["energy"] = energy_;
-    info["steps"] = steps_;
-    info["food_collected"] = (energy_gained > 0) ? 1.0 : 0.0;
-    info["button_pressed"] = buttonPressed ? 1.0 : 0.0;
-    info["complexity_level"] = complexity_level_;
-    info["n_doors"] = doors_.size();
-    info["n_buttons"] = buttons_.size();
-    info["n_doors_active"] = n_doors_active_;
-    info["n_buttons_working"] = n_buttons_working_;
+    // Build StepInfo – no heap allocation
+    StepInfo info;
+    info.energy = energy_;
+    info.steps = steps_;
+    info.food_collected = (energy_gained > 0) ? 1 : 0;
+    info.button_pressed = buttonPressed ? 1 : 0;
+    info.complexity_level = complexity_level_;
+    info.n_doors = static_cast<int>(doors_.size());
+    info.n_buttons = static_cast<int>(buttons_.size());
+    info.n_doors_active = n_doors_active_;
+    info.n_buttons_working = n_buttons_working_;
+
+    last_info_ = info;   // store for later optional access
 
     return {getObservation(), reward, terminated, false, info};
+}
+
+// ----------------------------------------------------------------------
+// Convert StepInfo to std::map – call only when needed (e.g., logging)
+// ----------------------------------------------------------------------
+std::map<std::string, double> GridMazeWorld::info_to_map(const StepInfo& info) const {
+    std::map<std::string, double> m;
+    m["energy"] = info.energy;
+    m["steps"] = static_cast<double>(info.steps);
+    m["food_collected"] = static_cast<double>(info.food_collected);
+    m["button_pressed"] = static_cast<double>(info.button_pressed);
+    m["complexity_level"] = info.complexity_level;
+    m["n_doors"] = static_cast<double>(info.n_doors);
+    m["n_buttons"] = static_cast<double>(info.n_buttons);
+    m["n_doors_active"] = static_cast<double>(info.n_doors_active);
+    m["n_buttons_working"] = static_cast<double>(info.n_buttons_working);
+    return m;
 }
 
 // ----------------------------------------------------------------------
@@ -875,7 +899,6 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
         }
     };
 
-    // Draw base tiles
     for (int y = 0; y < grid_size_; ++y)
         for (int x = 0; x < grid_size_; ++x) {
             int cid = idx(y, x);
@@ -886,7 +909,6 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
             cv::rectangle(img, cv::Rect(x*cell_size, y*cell_size, cell_size, cell_size), color, cv::FILLED);
         }
 
-    // Draw food sources (with countdown)
     for (const auto& fs : food_sources_) {
         int cx = fs.x * cell_size + cell_size/2;
         int cy = fs.y * cell_size + cell_size/2;
@@ -905,7 +927,6 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
         }
     }
 
-    // Draw doors (with numbers)
     for (const auto& d : doors_) {
         int cx = d.x * cell_size + cell_size/2;
         int cy = d.y * cell_size + cell_size/2;
@@ -921,7 +942,6 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
                     cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0,0,0), thickness);
     }
 
-    // Draw buttons (with door number)
     for (const auto& b : buttons_) {
         int cx = b.x * cell_size + cell_size/2;
         int cy = b.y * cell_size + cell_size/2;
@@ -938,13 +958,11 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
                     cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
     }
 
-    // Draw agent
     int ax = agent_x_ * cell_size + cell_size/2;
     int ay = agent_y_ * cell_size + cell_size/2;
     int r = cell_size / 2;
     cv::circle(img, cv::Point(ax,ay), r, cv::Scalar(255,255,255), -1);
 
-    // Info text
     std::stringstream info_ss, doors_ss;
     info_ss << std::fixed << std::setprecision(1);
     info_ss << "Energy: " << energy_ << " | Step: " << steps_ << "/" << max_steps_;
@@ -953,7 +971,6 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
     cv::putText(img, info_ss.str(), cv::Point(10,15), cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(255,255,255), 1);
     cv::putText(img, doors_ss.str(), cv::Point(10,35), cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(255,255,255), 1);
 
-    // Convert to NumPy array
     std::vector<size_t> shape = { static_cast<size_t>(img_h), static_cast<size_t>(img_w), 3 };
     py::array_t<uint8_t> result(shape);
     memcpy(result.mutable_data(), img.data, img.total() * img.elemSize());
@@ -961,7 +978,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
 }
 
 // ----------------------------------------------------------------------
-// Neighborhood mask and template matching (unchanged from original)
+// Neighborhood mask and template matching
 // ----------------------------------------------------------------------
 int GridMazeWorld::computeNeighborhoodMask(int y, int x) const {
     static const int dy[9] = {-1,-1,-1, 0,0,0, 1,1,1};

@@ -6,11 +6,27 @@
 #include <tuple>
 #include <optional>
 #include <map>
+#include <array>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <opencv2/opencv.hpp>
 
 namespace py = pybind11;
+
+// ----------------------------------------------------------------------
+// StepInfo – lightweight struct returned by step() (no heap allocation)
+// ----------------------------------------------------------------------
+struct StepInfo {
+    double energy;              // current agent energy (float → double for map)
+    int steps;                  // number of steps taken
+    int food_collected;         // 0/1 whether food was collected this step
+    int button_pressed;         // 0/1 whether a button was pressed this step
+    double complexity_level;    // task complexity (float)
+    int n_doors;                // total number of doors
+    int n_buttons;              // total number of buttons
+    int n_doors_active;         // doors that can still be opened
+    int n_buttons_working;      // buttons that are not broken
+};
 
 enum class TileType : uint8_t {
     EMPTY = 0,
@@ -36,9 +52,19 @@ public:
                   int n_doors, int door_open_duration, int door_close_duration,
                   int n_buttons_per_door, float button_break_probability);
 
+    // reset and soft_reset still return a map (infrequent, fine)
     std::tuple<std::vector<int>, std::map<std::string, double>> reset(std::optional<int> seed);
-    std::tuple<std::vector<int>, double, bool, bool, std::map<std::string, double>> step(int action);
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
+
+    // Fast step: returns const ref to observation (no copy), StepInfo (no alloc)
+    std::tuple<const std::vector<int>&, double, bool, bool, StepInfo> step(int action);
+
+    // Convert StepInfo to std::map<string,double> – call only when needed (e.g., for logging)
+    std::map<std::string, double> info_to_map(const StepInfo& info) const;
+
+    // Direct access to last stored StepInfo (optional)
+    const StepInfo& get_last_info() const { return last_info_; }
+
     py::array_t<uint8_t> render(int render_size = 512);
 
     // Getters for Python bindings
@@ -68,7 +94,7 @@ private:
     int n_obstacles_;
     int total_cells_;
 
-    // Flat grids (row‑major)
+    // Grids
     std::vector<uint8_t> grid_;
     std::vector<uint8_t> static_grid_;
     std::vector<int8_t> food_cache_;
@@ -104,14 +130,12 @@ private:
     std::vector<Button> buttons_;
     int n_doors_active_, n_buttons_working_;
 
-    // Pre‑allocated buffers (reused to avoid allocations)
+    // Reusable buffers for algorithms
     std::vector<int> bfs_queue_;
     std::vector<int> bfs_dist_;
     std::vector<int> labels_;
     std::vector<std::pair<int,int>> empty_cells_;
     std::vector<std::pair<int,int>> spawn_cells_;
-
-    // New reusable buffers for algorithms
     std::vector<uint8_t> pass_buf_;
     std::vector<int> dist_buf_;
     std::vector<int> queue_buf_;
@@ -119,20 +143,30 @@ private:
     std::vector<int> stack_buf_;
     std::vector<uint8_t> near_door_buf_;
 
-    // Fast food regrowth (active depletion list)
-    std::vector<int> food_cell_to_idx_;      // cell index → food source index or -1
-    std::vector<int> active_pos_;            // for each food source, index in active_depleted_food_ or -1
-    std::vector<int> active_depleted_food_;  // list of food source indices waiting to regrow
+    // Fast food regrowth
+    std::vector<int> food_cell_to_idx_;
+    std::vector<int> active_pos_;
+    std::vector<int> active_depleted_food_;
+    std::priority_queue<std::pair<int,int>,
+                        std::vector<std::pair<int,int>>,
+                        std::greater<std::pair<int,int>>> regrow_heap_;
+    int step_counter_;
 
-    // Required by Python bindings (must exist)
+    // O(1) lookup tables for doors/buttons
+    std::vector<int> button_at_cell_;
+    std::vector<int> door_at_cell_;
+    std::vector<int> working_buttons_per_door_;
+
+    // Reusable observation buffer (no per‑step allocation)
+    mutable std::vector<int> obs_buffer_;
+
+    // Last step info (stored for optional access)
+    StepInfo last_info_;
+
+    // Python bindings required lists (exposed as properties)
     std::vector<std::pair<int,int>> _food_coords;
     std::vector<std::pair<int,int>> _door_coords;
     std::vector<std::pair<int,int>> _button_coords;
-
-    std::priority_queue<std::pair<int, int>, 
-                        std::vector<std::pair<int, int>>, 
-                        std::greater<std::pair<int, int>>> regrow_heap_;
-    int step_counter_;   // absolute step counter (for regrowth scheduling)
 
     std::mt19937 rng_;
 
@@ -141,12 +175,13 @@ private:
     void placeObstaclesWithConnectivity();
     void initFoodSources();
     void initDoorsAndButtons();
+    void initPassableCache();
     void updateDoorStates();
-    void updatePassableCache();
+    inline void setDoorOpen(int doorIdx, bool open);
     bool canMoveTo(int y, int x) const { return passable_mask_[idx(y,x)] == 1; }
     int manhattanDistance(int y1, int x1, int y2, int x2) const;
     bool pressButton(int by, int bx);
-    std::vector<int> getObservation();
+    const std::vector<int>& getObservation();   // returns reference to obs_buffer_
 
     int computeNeighborhoodMask(int y, int x) const;
     bool matchesTemplate(int y, int x, int mask) const;

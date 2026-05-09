@@ -1,4 +1,3 @@
-// bindings.cpp
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
@@ -8,6 +7,28 @@
 namespace py = pybind11;
 
 PYBIND11_MODULE(maze_core, m) {
+    // ------------------------------------------------------------------
+    // StepInfo – exposed as a Python object with read-only attributes
+    // ------------------------------------------------------------------
+    py::class_<StepInfo>(m, "StepInfo")
+        .def_readonly("energy", &StepInfo::energy)
+        .def_readonly("steps", &StepInfo::steps)
+        .def_readonly("food_collected", &StepInfo::food_collected)
+        .def_readonly("button_pressed", &StepInfo::button_pressed)
+        .def_readonly("complexity_level", &StepInfo::complexity_level)
+        .def_readonly("n_doors", &StepInfo::n_doors)
+        .def_readonly("n_buttons", &StepInfo::n_buttons)
+        .def_readonly("n_doors_active", &StepInfo::n_doors_active)
+        .def_readonly("n_buttons_working", &StepInfo::n_buttons_working)
+        .def("__repr__", [](const StepInfo& info) {
+            return "<StepInfo energy=" + std::to_string(info.energy) +
+                   " steps=" + std::to_string(info.steps) +
+                   " food=" + std::to_string(info.food_collected) + ">";
+        });
+
+    // ------------------------------------------------------------------
+    // GridMazeWorld – single environment (fast path)
+    // ------------------------------------------------------------------
     py::class_<GridMazeWorld>(m, "GridMazeWorld")
         .def(py::init<int,int,int,float,float,float,float,
                       const std::string&,float,int,int,int,int,float>(),
@@ -17,9 +38,10 @@ PYBIND11_MODULE(maze_core, m) {
              py::arg("n_doors"), py::arg("door_open_duration"), py::arg("door_close_duration"),
              py::arg("n_buttons_per_door"), py::arg("button_break_probability"))
         .def("reset", &GridMazeWorld::reset, py::arg("seed") = py::none())
-        .def("step", &GridMazeWorld::step)
+        .def("step", &GridMazeWorld::step)          // returns tuple with StepInfo
         .def("soft_reset", &GridMazeWorld::soft_reset)
         .def("render", &GridMazeWorld::render, py::arg("render_size") = 512)
+        .def("info_to_map", &GridMazeWorld::info_to_map)   // optional dict conversion
         .def_property_readonly("max_steps", &GridMazeWorld::get_max_steps)
         .def_property_readonly("energy", &GridMazeWorld::get_energy)
         .def_property_readonly("task_class", &GridMazeWorld::get_task_class)
@@ -34,6 +56,9 @@ PYBIND11_MODULE(maze_core, m) {
         .def_property_readonly("food_coords", &GridMazeWorld::get_food_coords)
         .def_property_readonly("food_exists", &GridMazeWorld::get_food_exists);
 
+    // ------------------------------------------------------------------
+    // VectorizedMazeEnv – parallel environments (still returns StepInfo)
+    // ------------------------------------------------------------------
     py::class_<VectorizedMazeEnv>(m, "VectorizedMazeEnv")
         .def(py::init<int,int,int,int,float,float,float,float,
                       const std::string&,float,int,int,int,int,float,int>(),
@@ -49,8 +74,8 @@ PYBIND11_MODULE(maze_core, m) {
             return *self[i];
         }, py::return_value_policy::reference_internal)
         .def("reset", &VectorizedMazeEnv::reset, py::arg("seed_override") = py::none())
-        .def("step", &VectorizedMazeEnv::step)
-        .def("soft_reset", &VectorizedMazeEnv::soft_reset)          // single env reset (keeps layout)
-        .def("soft_reset_all", &VectorizedMazeEnv::soft_reset)      // alias for the same (trainer expects this)
+        .def("step", &VectorizedMazeEnv::step)      // returns vector<StepInfo>
+        .def("soft_reset", &VectorizedMazeEnv::soft_reset)
+        .def("soft_reset_all", &VectorizedMazeEnv::soft_reset)   // alias for trainer
         .def("close", &VectorizedMazeEnv::close);
 }

@@ -671,6 +671,99 @@ class GridMazeWorld(gym.Env):
             if self.button_break_probability is None:
                 self.button_break_probability = self.complexity_level * 0.3
 
+
+    """
+    # fast food source generation function, but invariant to complexity
+    def _init_food_sources(self): # original simple random (fast, but invariant to complexity)
+        empty_cells = np.argwhere(self.grid == TileType.EMPTY)
+        if len(empty_cells) == 0 or self.n_food_sources <= 0:
+            self.food_sources = np.zeros((0, 4), dtype=np.int32)
+            return
+        indices = np.random.choice(len(empty_cells), min(self.n_food_sources, len(empty_cells)), replace=False)
+        self.food_sources = np.zeros((len(indices), 4), dtype=np.int32)
+        for i, idx in enumerate(indices):
+            y, x = empty_cells[idx]
+            regen_time = np.random.randint(MIN_FOOD_REGEN_TIME, MAX_FOOD_REGEN_TIME)
+            self.food_sources[i] = [y, x, regen_time, 1]
+            self.grid[y, x] = TileType.FOOD_SOURCE
+    """
+
+    """
+    # just a placeholder to understand the idea of the function below
+    def _init_food_sources(self): # based on random 1D gaussian sampling and repulsion to make food sources less clustered in levels with high complexity and vice versa (slow)
+        empty_cells = [tuple(cell) for cell in np.argwhere(self.grid == TileType.EMPTY)]
+        if len(empty_cells) == 0 or self.n_food_sources <= 0:
+            self.food_sources = np.zeros((0, 4), dtype=np.int32)
+            return
+
+        self.food_sources = np.zeros((self.n_food_sources, 4), dtype=np.int32)
+        center = self.grid_size // 2
+
+        # Gaussian distribution for row/col sampling
+        std = (1.0 + self.complexity_level * (center - 1))
+        indices = np.arange(self.grid_size)
+        probs = np.exp(-0.5 * ((indices - center) / std) ** 2)
+        probs /= probs.sum()
+
+        empty_set = set(empty_cells)
+        size = self.grid_size
+        ring_offsets = self._ring_offsets
+
+        # Repulsion strength scales with complexity (0 = none, 1 = full)
+        strength = (0.1 + self.complexity_level) * size
+
+        for i in range(self.n_food_sources):
+            row = np.random.choice(size, p=probs)
+            col = np.random.choice(size, p=probs)
+
+            # Single-step repulsion from already placed foods
+            dx_total = 0.0
+            dy_total = 0.0
+            for j in range(i):
+                other_y = self.food_sources[j, 0]
+                other_x = self.food_sources[j, 1]
+                dy = row - other_y
+                dx = col - other_x
+                dist = abs(dy) + abs(dx)
+                if dist == 0:
+                    # Random push if exactly overlapping
+                    dx_total += np.random.uniform(-1, 1) * strength
+                    dy_total += np.random.uniform(-1, 1) * strength
+                else:
+                    # Force = strength / (dist + ε) ; direction away
+                    force = strength / (dist + 1e-6)
+                    dx_total += force * (dx / dist)
+                    dy_total += force * (dy / dist)
+
+            # Apply displacement once
+            row = int(np.clip(row + dy_total, 0, size - 1))
+            col = int(np.clip(col + dx_total, 0, size - 1))
+
+            #print(f"dx_total: {int(dx_total)}, dy_total: {int(dy_total)}, row: {row}, col: {col}")
+
+            # Find nearest empty cell (spiral search)
+            found = False
+            for d in range(len(ring_offsets)):
+                for dy, dx in ring_offsets[d]:
+                    ny, nx = row + dy, col + dx
+                    if 0 <= ny < size and 0 <= nx < size and (ny, nx) in empty_set:
+                        row, col = ny, nx
+                        found = True
+                        break
+                if found:
+                    break
+            if not found:
+                row, col = next(iter(empty_set))
+
+            regen = np.random.randint(MIN_FOOD_REGEN_TIME, MAX_FOOD_REGEN_TIME)
+            self.food_sources[i] = [row, col, regen, 1]
+            self.grid[row, col] = TileType.FOOD_SOURCE
+            empty_set.remove((row, col))
+
+        self._update_food_cache()
+    """
+
+
     # ---------- Generation helpers (unchanged except using scalars) ----------
     def _init_food_sources(self):
         # (unchanged – uses self.grid, self.food_sources, etc.)

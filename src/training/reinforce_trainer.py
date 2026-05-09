@@ -53,7 +53,7 @@ class ReinforceTrainer(ParallelTrainerBase):
         all_rewards = []
         all_energies = []
         all_next_obs = []
-        #current_energies = [env.energy for env in self.vector_env.envs]
+        # Get initial energies directly from the environment (fast property)
         current_energies = [self.vector_env[i].energy for i in range(self.batch_size)]
 
         for step in range(max_steps):
@@ -82,7 +82,9 @@ class ReinforceTrainer(ParallelTrainerBase):
             all_actions.append(actions)
             all_rewards.append(torch.tensor(r, dtype=torch.float32, device=self.device))
             all_next_obs.append(next_obs_tensor.clone())
-            current_energies = [info.get('energy', 0.0) for info in infos]
+            
+            # infos are StepInfo objects – direct attribute access (fast, no dict)
+            current_energies = [info.energy for info in infos]
             observations = next_obs_tensor
 
             if dones.all():

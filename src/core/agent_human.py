@@ -6,6 +6,7 @@ Human-controlled agent for playable mode
 import cv2
 import numpy as np
 from typing import Dict, Any
+import sys
 
 from src.core.constants import Actions
 from src.visualization.visualizer import Visualizer
@@ -118,7 +119,8 @@ class HumanAgent:
                     obs, reward, terminated, truncated, info = env.step(action)
                     episode_reward += reward
                     steps += 1
-                    print(f"Step {steps}: {Actions(action).name}, Reward={reward:.2f}, Energy={info['energy']:.1f}")
+                    # Use attribute access (info.energy) instead of dict
+                    print(f"Step {steps}: {Actions(action).name}, Reward={reward:.2f}, Energy={info.energy:.1f}")
 
                     if terminated or truncated:
                         break
@@ -129,7 +131,7 @@ class HumanAgent:
                 success_flags.append(steps == env.max_steps)
                 steps_list.append(steps)
 
-                print(f"\nEpisode finished: Reward={episode_reward:.2f}, Steps={steps}/{env.max_steps}, Final Energy={info['energy']:.1f}")
+                print(f"\nEpisode finished: Reward={episode_reward:.2f}, Steps={steps}/{env.max_steps}, Final Energy={info.energy:.1f}")
                 cv2.waitKey(1000)
                 total_episodes += 1
 
