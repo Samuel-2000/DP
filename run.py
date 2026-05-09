@@ -126,7 +126,9 @@ def main():
                 "auxiliary_tasks": args.auxiliary_tasks,
                 "reinforce_intra_epochs": args.reinforce_intra_epochs,
                 "grid_change_prob": args.grid_change_prob,
-                "update_per_episode": args.update_per_episode
+                "update_per_episode": args.update_per_episode,
+                "test_task_class": args.test_task_class,
+                "test_complexity_level": args.test_complexity_level
             },
         }
 

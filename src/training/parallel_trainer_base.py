@@ -261,6 +261,8 @@ class ParallelTrainerBase:
         self.epochs = training_cfg['epochs']
         self.test_interval = training_cfg['test_interval']
         self.save_interval = training_cfg['save_interval']
+        self.test_task_class = training_cfg['test_task_class']
+        self.test_complexity_level = training_cfg['test_complexity_level']
 
         self.action_buffer = np.zeros(self.batch_size, dtype=np.int64)
         
@@ -498,33 +500,41 @@ class ParallelTrainerBase:
             self.metrics['total_training_time'] += elapsed
             self.training_start_time = None
 
-    def _test_valid(self, epochs: int) -> dict:
+    def _test_valid(self, epochs: int = 10) -> dict:
+        """Run test epochs using the configured test environment (task class + complexity)."""
         self.agent.network.eval()
+
         test_env_config = self.config['environment'].copy()
-        test_env_config['task_class'] = 'complex'
-        test_env_config['complexity_level'] = 1.0
+        test_env_config['task_class'] = self.test_task_class
+        test_env_config['complexity_level'] = self.test_complexity_level
+        # Let door/button parameters be auto‑configured based on task class
+        test_env_config['n_doors'] = None
+        test_env_config['n_buttons_per_door'] = None
+        test_env_config['button_break_probability'] = None
         test_env_config['render_size'] = 0
-        test_seed = self.base_seed + 12345
+
+        test_seed = self.base_seed + 12345   # fixed offset for reproducibility
 
         total_episodes = epochs * self.batch_size
         all_rewards = []
         all_lengths = []
-        max_steps = 0
 
         for _ in range(epochs):
-            test_env = VectorizedMazeEnv(num_envs=self.batch_size, env_config=test_env_config, base_seed=test_seed)
+            test_env = VectorizedMazeEnv(
+                num_envs=self.batch_size,
+                env_config=test_env_config,
+                base_seed=test_seed
+            )
             max_steps = test_env.envs[0].max_steps
             obs_array, _ = test_env.reset()
             obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
+
             rewards = np.zeros(self.batch_size)
             lengths = np.zeros(self.batch_size, dtype=int)
 
             with torch.no_grad():
                 for step in range(max_steps):
-                    output = self.agent.network(obs_t)
-                    if isinstance(output, tuple):
-                        output = output[0]
-                    logits = output.squeeze(1)
+                    logits = self.agent.network(obs_t).squeeze(1)
                     actions = logits.argmax(dim=-1).cpu().numpy()
                     obs_array, r, terminated, truncated, _ = test_env.step(actions)
                     obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
@@ -536,10 +546,14 @@ class ParallelTrainerBase:
             all_rewards.extend(rewards)
             all_lengths.extend(lengths)
 
+        avg_reward = np.mean(all_rewards)
+        avg_length = np.mean(all_lengths)
+        success_rate = np.sum(np.array(all_lengths) == max_steps) / total_episodes * 100
+
         return {
-            'reward': np.mean(all_rewards),
-            'success_rate': np.sum(np.array(all_lengths) == max_steps) / total_episodes * 100,
-            'avg_length': np.mean(all_lengths)
+            'reward': avg_reward,
+            'success_rate': success_rate,
+            'avg_length': avg_length
         }
 
     def _save_model(self, name: str):

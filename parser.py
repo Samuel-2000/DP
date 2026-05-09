@@ -54,7 +54,8 @@ def parse_args():
     train_parser.add_argument("--experiment-name", type=str, default=None, help="Optional experiment name")
     train_parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint file (.pt) to resume training")
 
-
+    train_parser.add_argument("--test-task-class", type=str, choices=["basic","doors","buttons","complex"], default=None,  help="Task class for periodic validation (default: complex)")
+    train_parser.add_argument("--test-complexity-level", type=float, default=None, help="Complexity level for periodic validation (default: 1.0)")
 
     train_parser.add_argument("--algorithm", type=str, default="ppo", choices=["reinforce", "ppo"], help="RL algorithm: 'reinforce' or 'ppo' (default)")
 
@@ -106,8 +107,8 @@ def parse_args():
 
         general_parser.add_argument("--dynamic-complexity", action="store_true", help="Test across all stages and complexities")
         
-        general_parser.add_argument("--task-class", type=str, choices=["basic","doors","buttons","complex"], default=None)
-        general_parser.add_argument("--complexity-level", type=float, default=None)
+        general_parser.add_argument("--task-class", type=str, choices=["basic","doors","buttons","complex"], default="complex")
+        general_parser.add_argument("--complexity-level", type=float, default=1.0)
 
         # Optional filters for dynamic complexity
         general_parser.add_argument("--stages", nargs="+", choices=["basic","doors","buttons","complex"], default=["basic","doors","buttons","complex"])
