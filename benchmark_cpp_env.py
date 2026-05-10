@@ -109,7 +109,7 @@ def main():
     print(f"Doors: {args.n_doors} | Buttons per door: {args.n_buttons}")
 
     env_config = {
-        "grid_size": 11,#args.grid_size,
+        "grid_size": 79,#args.grid_size,
         "max_steps": 100,
         "n_food_sources": 4,
         "food_energy": 10.0,
@@ -117,7 +117,7 @@ def main():
         "energy_decay": 0.98,
         "energy_per_step": 0.1,
         "render_size": 0,
-        "task_class": "doors",# args.task,
+        "task_class": "complex",# args.task,
         "complexity_level": args.complexity,
         "n_doors": args.n_doors,
         "door_open_duration": 10,

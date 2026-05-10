@@ -149,6 +149,9 @@ private:
     // Articulation point analysis for the final static grid
     std::vector<bool> is_articulation_final_;
     std::vector<int> artic_comp_count_;
+    std::vector<int> subtree_empty_;               // empty cells in DFS subtree of each passable cell
+    std::vector<std::vector<int>> artic_comp_sizes_;// for articulation cells: sizes of resulting components
+    int total_empty_;                              // total number of empty cells in static_grid_
 
     int nextDoorNumber_;
 
