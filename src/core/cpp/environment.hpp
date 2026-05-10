@@ -14,6 +14,47 @@
 
 namespace py = pybind11;
 
+// ------------------------------------------------------------------
+// Aligned allocator for SIMD (32‑byte alignment)
+// ------------------------------------------------------------------
+template <typename T, std::size_t Alignment = 32>
+struct AlignedAllocator {
+    using value_type = T;
+    using pointer = T*;
+    using const_pointer = const T*;
+    using size_type = std::size_t;
+
+    template <typename U>
+    struct rebind {
+        using other = AlignedAllocator<U, Alignment>;
+    };
+
+    AlignedAllocator() = default;
+    template <typename U>
+    AlignedAllocator(const AlignedAllocator<U, Alignment>&) {}
+
+    pointer allocate(size_type n) {
+        if (n == 0) return nullptr;
+        void* ptr;
+#ifdef _WIN32
+        ptr = _aligned_malloc(n * sizeof(T), Alignment);
+        if (!ptr) throw std::bad_alloc();
+#else
+        if (posix_memalign(&ptr, Alignment, n * sizeof(T)) != 0)
+            throw std::bad_alloc();
+#endif
+        return static_cast<pointer>(ptr);
+    }
+
+    void deallocate(pointer p, size_type) {
+#ifdef _WIN32
+        _aligned_free(p);
+#else
+        free(p);
+#endif
+    }
+};
+
 struct StepInfo {
     double energy;
     int steps;
@@ -64,9 +105,9 @@ public:
     int get_agent_y() const { return agent_y_; }
     int get_agent_x() const { return agent_x_; }
     int get_steps() const { return steps_; }
-    const std::vector<uint8_t>& get_static_grid() const { return static_grid_; }
-    const std::vector<uint8_t>& get_door_open() const { return door_open_; }
-    const std::vector<uint8_t>& get_button_broken() const { return button_broken_; }
+    const std::vector<uint8_t, AlignedAllocator<uint8_t>>& get_static_grid() const { return static_grid_; }
+    const std::vector<uint8_t, AlignedAllocator<uint8_t>>& get_door_open() const { return door_open_; }
+    const std::vector<uint8_t, AlignedAllocator<uint8_t>>& get_button_broken() const { return button_broken_; }
     const std::vector<std::pair<int,int>>& get_food_coords() const { return _food_coords; }
     const std::vector<bool>& get_food_exists() const { return food_exists_cache_; }
 
@@ -81,16 +122,17 @@ private:
     int n_obstacles_;
     int total_cells_;
 
-    std::vector<uint8_t> grid_;
-    std::vector<uint8_t> static_grid_;
-    std::vector<int8_t> food_cache_;
-    std::vector<uint8_t> door_open_;
-    std::vector<uint8_t> button_broken_;
-    std::vector<uint8_t> passable_mask_;
+    // Aligned vectors for SIMD
+    std::vector<uint8_t, AlignedAllocator<uint8_t>> grid_;
+    std::vector<uint8_t, AlignedAllocator<uint8_t>> static_grid_;
+    std::vector<int8_t, AlignedAllocator<int8_t>> food_cache_;
+    std::vector<uint8_t, AlignedAllocator<uint8_t>> door_open_;
+    std::vector<uint8_t, AlignedAllocator<uint8_t>> button_broken_;
+    std::vector<uint8_t, AlignedAllocator<uint8_t>> passable_mask_;
 
     struct FoodSource { 
         int y, x, delay, exists, count;
-        int regrow_step;          // absolute step when food regrows, -1 if exists
+        int regrow_step;
     };
     std::vector<FoodSource> food_sources_;
     std::vector<bool> food_exists_cache_;
@@ -116,6 +158,7 @@ private:
     std::vector<Button> buttons_;
     int n_doors_active_, n_buttons_working_;
 
+    // Buffers (no alignment required for these temporary arrays)
     std::vector<int> bfs_queue_;
     std::vector<int> bfs_dist_;
     std::vector<int> labels_;
@@ -146,16 +189,25 @@ private:
     std::vector<std::pair<int,int>> _door_coords;
     std::vector<std::pair<int,int>> _button_coords;
 
-    // Articulation point analysis for the final static grid
+    // Articulation analysis
     std::vector<bool> is_articulation_final_;
     std::vector<int> artic_comp_count_;
-    std::vector<int> subtree_empty_;               // empty cells in DFS subtree of each passable cell
-    std::vector<std::vector<int>> artic_comp_sizes_;// for articulation cells: sizes of resulting components
-    int total_empty_;                              // total number of empty cells in static_grid_
+    std::vector<int> subtree_empty_;
+    std::vector<std::vector<int>> artic_comp_sizes_;
+    int total_empty_;
 
     int nextDoorNumber_;
-
     std::mt19937 rng_;
+
+    // Active doors – only those that are open or in the process of closing/opening
+    std::vector<int> active_doors_;  // indices into doors_ that are active
+    std::vector<bool> is_door_active_;
+
+// Food: the heap is already there, we'll just process it on demand
+
+    // Pre‑computed neighbour offsets (for observation)
+    static constexpr int dy8_[8] = {-1,-1,-1,0,0,1,1,1};
+    static constexpr int dx8_[8] = {-1,0,1,-1,1,-1,0,1};
 
     inline int idx(int y, int x) const { return y * grid_size_ + x; }
 
@@ -168,7 +220,7 @@ private:
     bool canMoveTo(int y, int x) const { return passable_mask_[idx(y,x)] == 1; }
     int manhattanDistance(int y1, int x1, int y2, int x2) const;
     bool pressButton(int by, int bx);
-    const std::vector<int>& getObservation();
+    const std::vector<int>& getObservation();      // SIMD‑optimised
 
     void labelConnectedComponents(const std::vector<uint8_t>& pass_mask, std::vector<int>& labels, int& nlabels);
     void bfsReachable(int sy, int sx, int maxdist, const std::vector<uint8_t>& pass_mask,
