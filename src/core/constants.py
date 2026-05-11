@@ -206,7 +206,7 @@ class TaskClass:
     COMPLEX = "complex"
 
 # Default environment parameters
-DEFAULT_GRID_SIZE = 21
+DEFAULT_GRID_SIZE = 11
 DEFAULT_MAX_STEPS = 100
 DEFAULT_FOOD_SOURCES = 4
 DEFAULT_FOOD_ENERGY = 10.0

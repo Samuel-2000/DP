@@ -16,7 +16,7 @@ class HumanAgent:
     """Human-controlled agent using keyboard input"""
     
     def __init__(self):
-        self.key_to_action = {
+        self.action_map = {
             ord('a'): Actions.LEFT,    ord('A'): Actions.LEFT,
             ord('d'): Actions.RIGHT,   ord('D'): Actions.RIGHT,
             ord('w'): Actions.UP,      ord('W'): Actions.UP,

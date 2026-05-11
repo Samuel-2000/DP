@@ -11,8 +11,6 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 
 from src.core.agent import Agent
-#from core.obsolete.env_factory import EnvironmentFactory # TODO cpp version
-#from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
 
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path

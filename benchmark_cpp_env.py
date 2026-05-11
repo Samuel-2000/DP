@@ -77,9 +77,9 @@ def measure_step(env, num_steps, random_actions=True):
 
 
 def benchmark(env, name):
-    NUM_RESET = 1000
-    NUM_SOFT = 10_000
-    NUM_STEPS = 100_000
+    NUM_RESET = 640
+    NUM_SOFT = 64_000
+    NUM_STEPS = 640_000
 
     print(f"\n{'='*60}")
     print(f"Benchmark: {name}")
@@ -105,11 +105,8 @@ def main():
     parser.add_argument("--grid_size", type=int, default=11)
     args = parser.parse_args()
 
-    print(f"Grid size: {args.grid_size} | Task: {args.task} | Complexity: {args.complexity}")
-    print(f"Doors: {args.n_doors} | Buttons per door: {args.n_buttons}")
-
     env_config = {
-        "grid_size": 79,#args.grid_size,
+        "grid_size": 79,
         "max_steps": 100,
         "n_food_sources": 4,
         "food_energy": 10.0,
@@ -117,12 +114,12 @@ def main():
         "energy_decay": 0.98,
         "energy_per_step": 0.1,
         "render_size": 0,
-        "task_class": "complex",# args.task,
-        "complexity_level": args.complexity,
-        "n_doors": args.n_doors,
+        "task_class": "complex",
+        "complexity_level": 1.0,
+        "n_doors": 0,
         "door_open_duration": 10,
         "door_close_duration": 20,
-        "n_buttons_per_door": args.n_buttons,
+        "n_buttons_per_door": 4,
         "button_break_probability": 0.0,
     }
 
@@ -131,11 +128,11 @@ def main():
     benchmark(cpp_env, "C++ (maze_core)")
 
     # --- Original Python environment (obsolete) ---
-    if PYTHON_AVAILABLE and PythonGridMazeWorld is not None:
-        py_env = PythonGridMazeWorld(**env_config)
-        benchmark(py_env, "Python+Numba (original / obsolete)")
-    else:
-        print("\n⚠️ Skipping Python environment benchmark (not found)")
+    #if PYTHON_AVAILABLE and PythonGridMazeWorld is not None:
+    #    py_env = PythonGridMazeWorld(**env_config)
+    #    benchmark(py_env, "Python+Numba (original / obsolete)")
+    #else:
+    #    print("\n⚠️ Skipping Python environment benchmark (not found)")
 
     print("\n" + "="*60)
     print("Benchmark complete.")

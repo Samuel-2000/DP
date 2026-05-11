@@ -74,7 +74,7 @@ def get_opencv_flags():
 def get_optimization_flags():
     """Optimization flags according to platform."""
     if platform.system() == 'Windows':
-        return ['/O2', '/std:c++17', '/fp:fast', '/arch:AVX2', '/EHsc']
+        return ['/O2', '/std:c++17', '/fp:fast', '/arch:AVX2', '/EHsc', '/openmp']
     else:
         flags = ['-O3', '-march=native', '-ffast-math', '-fopenmp',
                  '-funroll-loops', '-std=c++17']
