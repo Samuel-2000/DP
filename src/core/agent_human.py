@@ -16,18 +16,18 @@ class HumanAgent:
     """Human-controlled agent using keyboard input"""
     
     def __init__(self):
-        self.action_map = {
-            ord('a'): Actions.LEFT,      # 'a' for left
-            ord('d'): Actions.RIGHT,     # 'd' for right
-            ord('w'): Actions.UP,        # 'w' for up
-            ord('s'): Actions.DOWN,      # 's' for down
-            ord(' '): Actions.STAY,      # space for stay
-            ord('b'): Actions.BUTTON,    # 'b' for button
-            81: Actions.LEFT,            # Left arrow key
-            82: Actions.UP,              # Up arrow key
-            83: Actions.RIGHT,           # Right arrow key
-            84: Actions.DOWN,            # Down arrow key
-            13: Actions.BUTTON,          # Enter key for button
+        self.key_to_action = {
+            ord('a'): Actions.LEFT,    ord('A'): Actions.LEFT,
+            ord('d'): Actions.RIGHT,   ord('D'): Actions.RIGHT,
+            ord('w'): Actions.UP,      ord('W'): Actions.UP,
+            ord('s'): Actions.DOWN,    ord('S'): Actions.DOWN,
+            ord(' '): Actions.STAY,
+            ord('b'): Actions.BUTTON,  ord('B'): Actions.BUTTON,
+            13: Actions.BUTTON,        # Enter key
+            81: Actions.LEFT,          # Left arrow
+            82: Actions.UP,            # Up arrow
+            83: Actions.RIGHT,         # Right arrow
+            84: Actions.DOWN,          # Down arrow
         }
         
         self.key_descriptions = {

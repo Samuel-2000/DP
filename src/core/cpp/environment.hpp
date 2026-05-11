@@ -199,12 +199,6 @@ private:
     int nextDoorNumber_;
     std::mt19937 rng_;
 
-    // Active doors – only those that are open or in the process of closing/opening
-    std::vector<int> active_doors_;  // indices into doors_ that are active
-    std::vector<bool> is_door_active_;
-
-// Food: the heap is already there, we'll just process it on demand
-
     // Pre‑computed neighbour offsets (for observation)
     static constexpr int dy8_[8] = {-1,-1,-1,0,0,1,1,1};
     static constexpr int dx8_[8] = {-1,0,1,-1,1,-1,0,1};
@@ -220,7 +214,7 @@ private:
     bool canMoveTo(int y, int x) const { return passable_mask_[idx(y,x)] == 1; }
     int manhattanDistance(int y1, int x1, int y2, int x2) const;
     bool pressButton(int by, int bx);
-    const std::vector<int>& getObservation();      // SIMD‑optimised
+    const std::vector<int>& getObservation();
 
     void labelConnectedComponents(const std::vector<uint8_t>& pass_mask, std::vector<int>& labels, int& nlabels);
     void bfsReachable(int sy, int sx, int maxdist, const std::vector<uint8_t>& pass_mask,
@@ -229,6 +223,7 @@ private:
 
     void computeFinalArticulationPoints();
     bool placeDoorWithButtons(int y, int x);
+    void placeButtonsForDoor(int doorIdx);   // new: second‑phase button placement
     void connectIsolatedCells();
     bool checkComponentsMinSize(int y, int x, int minEmpty);
 };

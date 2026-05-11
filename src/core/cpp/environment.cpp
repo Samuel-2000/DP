@@ -684,6 +684,7 @@ void GridMazeWorld::initDoorsAndButtons() {
     buttons_.clear();
     if (n_doors_ == 0) return;
 
+    // ---------- Phase 1: place all door cells (no buttons yet) ----------
     computeFinalArticulationPoints();
 
     std::vector<int> candidates;
@@ -720,11 +721,6 @@ void GridMazeWorld::initDoorsAndButtons() {
         remaining[idxp] = remaining.back();
         remaining.pop_back();
 
-        // --- NEW CHECK: candidate cell must still be empty ---
-        if (static_grid_[cid] != static_cast<uint8_t>(TileType::EMPTY))
-            continue;
-
-
         int y = cid / grid_size_, x = cid % grid_size_;
 
         bool tooClose = false;
@@ -741,8 +737,8 @@ void GridMazeWorld::initDoorsAndButtons() {
         }
 
         if (!requires_button) {
+            // Automatic door – no buttons
             if (!checkComponentsMinSize(y, x, 2)) continue;
-
             Door d{y, x, door_open_duration_, door_close_duration_, nextDoorNumber_,
                    false, true, false, 0};
             std::uniform_real_distribution<float> coin(0,1);
@@ -753,8 +749,161 @@ void GridMazeWorld::initDoorsAndButtons() {
             door_open_[cid] = d.is_open ? 1 : 0;
             ++nextDoorNumber_;
         } else {
-            placeDoorWithButtons(y, x);
+            // Button‑required door – only the door cell now, buttons later
+            if (!checkComponentsMinSize(y, x, 3)) continue;
+            Door d{y, x, door_open_duration_, door_close_duration_, nextDoorNumber_,
+                   true, true, false, 0};
+            d.is_open = false;
+            doors_.push_back(d);
+            grid_[cid] = static_cast<uint8_t>(TileType::DOOR_CLOSED);
+            static_grid_[cid] = static_cast<uint8_t>(TileType::DOOR_CLOSED);
+            door_open_[cid] = 0;
+            ++nextDoorNumber_;
         }
+    }
+
+    // ---------- Phase 2: place buttons for doors that require them ----------
+    // Build mapping from door cell to index
+    std::fill(door_at_cell_.begin(), door_at_cell_.end(), -1);
+    for (size_t i = 0; i < doors_.size(); ++i) {
+        door_at_cell_[idx(doors_[i].y, doors_[i].x)] = static_cast<int>(i);
+    }
+
+    // **CRITICAL FIX:** Resize working_buttons_per_door_ to match number of doors
+    working_buttons_per_door_.assign(doors_.size(), 0);
+
+    // Place buttons for each button‑required door
+    for (size_t di = 0; di < doors_.size(); ++di) {
+        if (doors_[di].requires_button) {
+            placeButtonsForDoor(static_cast<int>(di));
+        }
+    }
+
+    // Update button_at_cell_ and working counters
+    std::fill(button_at_cell_.begin(), button_at_cell_.end(), -1);
+    for (size_t i = 0; i < buttons_.size(); ++i) {
+        const auto& b = buttons_[i];
+        button_at_cell_[idx(b.y, b.x)] = static_cast<int>(i);
+        if (!b.is_broken) ++working_buttons_per_door_[b.door_idx];
+    }
+}
+
+
+void GridMazeWorld::placeButtonsForDoor(int doorIdx) {
+    Door& door = doors_[doorIdx];
+    int y = door.y, x = door.x;
+
+    int comp_needed = artic_comp_count_[idx(y, x)];
+    if (comp_needed < 2) return;
+
+    int maxdist = std::max(0, door_open_duration_ - 2);
+
+    // Build mask: passable = not obstacle, and not a button‑required (closed) door.
+    // Automatic doors are treated as passable (agent can wait for them to open).
+    std::vector<uint8_t> local_mask(total_cells_, 0);
+    for (int i = 0; i < total_cells_; ++i) {
+        uint8_t t = static_grid_[i];
+        if (t == static_cast<uint8_t>(TileType::OBSTACLE)) continue;
+        // Only block button‑required doors that are closed.
+        // Automatic doors (requires_button == false) are NOT blocked.
+        if (t == static_cast<uint8_t>(TileType::DOOR_CLOSED)) {
+            int did = door_at_cell_[i];
+            if (did != -1 && doors_[did].requires_button) {
+                continue; // blocked
+            }
+        }
+        local_mask[i] = 1;
+    }
+    // Also explicitly block the door's own cell (redundant but safe)
+    local_mask[idx(y, x)] = 0;
+
+    // BFS to label components reachable from the four orthogonal neighbours
+    const int dy[4] = {-1, 1, 0, 0};
+    const int dx[4] = {0, 0, -1, 1};
+    std::vector<int> comp_id(total_cells_, -1);
+    std::vector<int> queue;
+    queue.reserve(total_cells_);
+    int head = 0;
+    std::array<int, 4> seed_label = { -1, -1, -1, -1 };
+    int next_label = 0;
+
+    for (int d = 0; d < 4; ++d) {
+        int ny = y + dy[d], nx = x + dx[d];
+        if (ny < 0 || ny >= grid_size_ || nx < 0 || nx >= grid_size_) continue;
+        int nid = idx(ny, nx);
+        if (local_mask[nid]) {
+            comp_id[nid] = d;
+            seed_label[d] = next_label++;
+            queue.push_back(nid);
+        }
+    }
+    if (queue.empty()) return;
+
+    while (head < (int)queue.size()) {
+        int cur = queue[head++];
+        int cur_seed = comp_id[cur];
+        int cur_label = seed_label[cur_seed];
+        int cy = cur / grid_size_, cx = cur % grid_size_;
+        int dist = std::abs(cy - y) + std::abs(cx - x);
+        if (dist >= maxdist) continue;
+
+        for (int d = 0; d < 4; ++d) {
+            int ny = cy + dy[d], nx = cx + dx[d];
+            if (ny < 0 || ny >= grid_size_ || nx < 0 || nx >= grid_size_) continue;
+            int nid = idx(ny, nx);
+            if (!local_mask[nid]) continue;
+
+            if (comp_id[nid] == -1) {
+                comp_id[nid] = cur_seed;
+                queue.push_back(nid);
+            } else {
+                int other_seed = comp_id[nid];
+                int other_label = seed_label[other_seed];
+                if (other_label != cur_label) {
+                    // merge components
+                    for (int i = 0; i < 4; ++i)
+                        if (seed_label[i] == other_label)
+                            seed_label[i] = cur_label;
+                    for (int& id : queue) {
+                        int s = comp_id[id];
+                        if (seed_label[s] == other_label)
+                            seed_label[s] = cur_label;
+                    }
+                }
+            }
+        }
+    }
+
+    std::set<int> distinct_labels;
+    for (int d = 0; d < 4; ++d)
+        if (seed_label[d] != -1)
+            distinct_labels.insert(seed_label[d]);
+
+    if ((int)distinct_labels.size() != comp_needed) return;
+
+    // Collect empty cells per component that are within maxdist
+    std::map<int, std::vector<std::pair<int,int>>> comp_cells;
+    for (int cid : queue) {
+        int seed = comp_id[cid];
+        int lbl = seed_label[seed];
+        if (lbl != -1 && static_grid_[cid] == static_cast<uint8_t>(TileType::EMPTY)) {
+            comp_cells[lbl].emplace_back(cid / grid_size_, cid % grid_size_);
+        }
+    }
+
+    // Ensure each component has at least 3 empty cells
+    for (const auto& [lbl, cells] : comp_cells) {
+        if (cells.size() < 3) return;
+    }
+
+    // Place one random button in each component
+    for (const auto& [lbl, cells] : comp_cells) {
+        std::uniform_int_distribution<size_t> dist(0, cells.size() - 1);
+        auto [by, bx] = cells[dist(rng_)];
+        Button btn{by, bx, doorIdx, door.number, button_break_probability_, false};
+        buttons_.push_back(btn);
+        grid_[idx(by, bx)] = static_cast<uint8_t>(TileType::BUTTON);
+        static_grid_[idx(by, bx)] = static_cast<uint8_t>(TileType::BUTTON);
     }
 }
 
