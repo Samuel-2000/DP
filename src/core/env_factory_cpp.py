@@ -41,7 +41,7 @@ class EnvironmentFactoryCPP:
         return maze_core.GridMazeWorld(
             grid_size=env_config.get('grid_size', 11),
             max_steps=env_config.get('max_steps', 100),
-            n_food_sources=env_config.get('n_food_sources', 4),
+            n_food_sources=env_config.get('n_food_sources', 0),
             food_energy=env_config.get('food_energy', 10.0),
             initial_energy=env_config.get('initial_energy', 30.0),
             energy_decay=env_config.get('energy_decay', 0.98),
@@ -82,7 +82,7 @@ class EnvironmentFactoryCPP:
             num_envs=num_envs,
             grid_size=env_config.get('grid_size', 11),
             max_steps=env_config.get('max_steps', 100),
-            n_food_sources=env_config.get('n_food_sources', 4),
+            n_food_sources=env_config.get('n_food_sources', 0),
             food_energy=env_config.get('food_energy', 10.0),
             initial_energy=env_config.get('initial_energy', 30.0),
             energy_decay=env_config.get('energy_decay', 0.98),

@@ -23,8 +23,8 @@ bool GridMazeWorld::Door::open() {
 GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float ed, float eps,
                              const std::string& tc, float cl, int nd, int dod, int dcd,
                              int nbpd, float bbp)
-    : grid_size_(gs), max_steps_(ms), n_food_sources_(nf), food_energy_(fe),
-      initial_energy_(ie), energy_decay_(ed), energy_per_step_(eps),
+    : grid_size_(gs), max_steps_(ms), n_food_sources_(nf), requested_food_sources_(nf),
+      food_energy_(fe), initial_energy_(ie), energy_decay_(ed), energy_per_step_(eps),
       task_class_(tc), complexity_level_(cl), n_doors_(nd), door_open_duration_(dod),
       door_close_duration_(dcd), n_buttons_per_door_(nbpd), button_break_probability_(bbp),
       total_cells_(gs * gs), rng_(std::random_device{}()), nextDoorNumber_(1) {
@@ -53,29 +53,14 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
     last_info_ = StepInfo{};
 
     // ------------------------------------------------------------------
-    // Grid‑size dependent scaling factors
+    // Grid‑size dependent scaling for doors/buttons (unchanged)
     // ------------------------------------------------------------------
     int grid_area = grid_size_ * grid_size_;
-
-    // Max doors for doors/buttons tasks
     int max_doors_by_grid_ = std::max(1, grid_area / 30);
-
-    // Max doors for complex task (slightly more)
     int max_doors_complex = std::max(1, grid_area / 24);
-
-    // Minimum doors for non‑basic tasks – scales with area
     int min_doors = std::max(1, grid_area / 60);
     int min_doors_complex = std::max(1, grid_area / 50);
 
-    // Food scaling – fewer with higher complexity (minimum scales with area)
-    if (n_food_sources_ <= 0) {
-        int food_scale = std::max(2, grid_area / 20);   // max at cl=0: 6 for 11x11
-        int min_food = std::max(2, grid_area / 60);     // 2 for 11x11, grows on larger grids
-        n_food_sources_ = std::max(min_food,
-            static_cast<int>((1.0f - complexity_level_) * food_scale));
-    }
-
-    // Adjust parameters based on task class
     if (task_class_ == "basic") {
         n_doors_ = 0;
         n_buttons_per_door_ = 0;
@@ -101,6 +86,42 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
         if (button_break_probability_ < 0)
             button_break_probability_ = complexity_level_ * 0.3f;
     }
+
+    // NOTE: n_food_sources_ is left as passed (could be <=0).
+    // Random determination now happens in reset().
+}
+
+// ----------------------------------------------------------------------
+// New helper: compute actual number of food sources for this episode
+// ----------------------------------------------------------------------
+int GridMazeWorld::getActualFoodSources() {
+    if (requested_food_sources_ > 0) {
+        return requested_food_sources_;
+    }
+
+    int grid_area = grid_size_ * grid_size_;
+    std::uniform_real_distribution<float> max_dist(0.6f, 1.0f);
+    std::uniform_real_distribution<float> min_dist(1.0f, 1.2f);
+
+    float random_max = max_dist(rng_);
+    float random_min = min_dist(rng_);
+
+    int max_food = static_cast<int>(std::max(2, grid_area / 20) * random_max);
+    int min_food = static_cast<int>(std::max(2, grid_area / 60) * random_min);
+
+
+    int result = static_cast<int>(complexity_level_ * min_food + (1.0f - complexity_level_) * max_food);
+
+    // Optional debug output (can be removed)
+    //std::cout << "grid_area: " << grid_area << std::endl;
+    //std::cout << "complexity_level_: " << complexity_level_ << std::endl;
+    //std::cout << "random_max: " << random_max << std::endl;
+    //std::cout << "random_min: " << random_min << std::endl;
+    //std::cout << "max_food: " << max_food << std::endl;
+    //std::cout << "min_food: " << min_food << std::endl;
+    //std::cout << "n_food_sources_: " << result << std::endl;
+
+    return result;
 }
 
 // ----------------------------------------------------------------------
@@ -285,64 +306,103 @@ bool GridMazeWorld::checkComponentsMinSize(int y, int x, int minEmpty) {
 // Food source placement (unchanged)
 // ----------------------------------------------------------------------
 void GridMazeWorld::initFoodSources() {
+    // ---- first part: from second function ----
+    // Collect all empty cells
     empty_cells_.clear();
-    for (int y = 1; y < grid_size_-1; ++y)
-        for (int x = 1; x < grid_size_-1; ++x)
-            if (grid_[idx(y,x)] == static_cast<uint8_t>(TileType::EMPTY))
+    for (int y = 1; y < grid_size_ - 1; ++y)
+        for (int x = 1; x < grid_size_ - 1; ++x)
+            if (grid_[idx(y, x)] == static_cast<uint8_t>(TileType::EMPTY))
                 empty_cells_.emplace_back(y, x);
 
     if (empty_cells_.empty()) return;
-    std::shuffle(empty_cells_.begin(), empty_cells_.end(), rng_);
-    int n_food = std::min(static_cast<int>(empty_cells_.size()), n_food_sources_);
-    food_sources_.clear();
-    std::uniform_int_distribution<int> delayDist(10,30);
-
-    float centre = (grid_size_-1) * 0.5f;
-    std::vector<float> dists(empty_cells_.size());
-    for (size_t i = 0; i < empty_cells_.size(); ++i) {
-        auto [y, x] = empty_cells_[i];
-        dists[i] = std::abs(y - centre) + std::abs(x - centre);
+    int N = static_cast<int>(empty_cells_.size());
+    int n_food = std::min(N, n_food_sources_);
+    if (n_food <= 0) {
+        food_sources_.clear();
+        return;
     }
-    std::vector<int> idx_vec(empty_cells_.size());
-    std::iota(idx_vec.begin(), idx_vec.end(), 0);
 
+    // Compute Manhattan distance to centre
+    float centre = (grid_size_ - 1) * 0.5f;
+    std::vector<float> dist(N);
+    for (int i = 0; i < N; ++i) {
+        auto [y, x] = empty_cells_[i];
+        dist[i] = std::abs(y - centre) + std::abs(x - centre);
+    }
+
+    // Build centre pool: the "centre_count" closest cells (shuffled later)
+    int centre_count = std::min(N, std::max(n_food, N / 4));
+    std::vector<int> centre_pool(N);
+    std::iota(centre_pool.begin(), centre_pool.end(), 0);
+    std::partial_sort(centre_pool.begin(), centre_pool.begin() + centre_count, centre_pool.end(),
+                      [&](int a, int b) { return dist[a] < dist[b]; });
+    centre_pool.resize(centre_count);
+    std::shuffle(centre_pool.begin(), centre_pool.end(), rng_);
+
+    // ---- second part: from first function ----
     int n_centre = static_cast<int>((1.0f - complexity_level_) * n_food);
     n_centre = std::max(0, std::min(n_centre, n_food));
-    if (n_centre > 0) {
-        std::partial_sort(idx_vec.begin(), idx_vec.begin()+n_centre, idx_vec.end(),
-            [&](int a, int b) { return dists[a] < dists[b]; });
+
+    std::vector<bool> used(N, false);
+    std::vector<int> chosen;
+    chosen.reserve(n_food);
+
+    // Take from centre pool first
+    int centre_idx = 0;
+    for (int i = 0; i < n_centre && centre_idx < (int)centre_pool.size(); ++i) {
+        int idc = centre_pool[centre_idx++];
+        chosen.push_back(idc);
+        used[idc] = true;
     }
 
-    std::vector<bool> used(empty_cells_.size(), false);
-    for (int i = 0; i < n_food; ++i) {
-        int chosen;
-        if (i < n_centre)
-            chosen = idx_vec[i];
-        else {
-            int k = std::max(2, static_cast<int>(std::sqrt(empty_cells_.size() / std::max(n_food,1))));
-            std::uniform_int_distribution<int> offy(0, k-1), offx(0, k-1);
-            int oy = offy(rng_), ox = offx(rng_);
-            std::vector<int> spreadPool;
-            for (size_t j = 0; j < empty_cells_.size(); ++j) {
-                if (used[j]) continue;
-                auto [y, x] = empty_cells_[j];
-                if ((y - oy) % k == 0 && (x - ox) % k == 0)
-                    spreadPool.push_back(j);
-            }
-            if (spreadPool.empty()) {
-                for (size_t j = 0; j < empty_cells_.size(); ++j)
-                    if (!used[j]) spreadPool.push_back(j);
-            }
-            std::uniform_int_distribution<int> spd(0, spreadPool.size()-1);
-            chosen = spreadPool[spd(rng_)];
+    // Spread selection: dynamic per‑food pool with random offsets
+    int k = std::max(2, static_cast<int>(std::sqrt(static_cast<float>(N) / std::max(n_food, 1))));
+    std::uniform_int_distribution<int> delayDist(10, 30);
+    int need = n_food - static_cast<int>(chosen.size());
+    for (int i = 0; i < need; ++i) {
+        // Generate random offset for modulo condition
+        std::uniform_int_distribution<int> offy(0, k - 1), offx(0, k - 1);
+        int oy = offy(rng_), ox = offx(rng_);
+        std::vector<int> spreadPool;
+        for (int j = 0; j < N; ++j) {
+            if (used[j]) continue;
+            auto [y, x] = empty_cells_[j];
+            if ((y - oy) % k == 0 && (x - ox) % k == 0)
+                spreadPool.push_back(j);
         }
-        used[chosen] = true;
-        auto [y, x] = empty_cells_[chosen];
+        // Fallback to any unused cell if spreadPool empty
+        if (spreadPool.empty()) {
+            for (int j = 0; j < N; ++j)
+                if (!used[j]) spreadPool.push_back(j);
+        }
+        std::uniform_int_distribution<int> spd(0, static_cast<int>(spreadPool.size()) - 1);
+        int chosen_idx = spreadPool[spd(rng_)];
+        chosen.push_back(chosen_idx);
+        used[chosen_idx] = true;
+    }
+
+    // (Optional safety: if still fewer chosen than n_food – should not happen)
+    // but we keep original fallback for robustness
+    if (static_cast<int>(chosen.size()) < n_food) {
+        std::vector<int> remaining;
+        for (int i = 0; i < N; ++i)
+            if (!used[i]) remaining.push_back(i);
+        std::shuffle(remaining.begin(), remaining.end(), rng_);
+        int still_need = n_food - static_cast<int>(chosen.size());
+        for (int i = 0; i < still_need; ++i)
+            chosen.push_back(remaining[i]);
+    }
+
+    // Create food sources and update grid
+    food_sources_.clear();
+    for (int idc : chosen) {
+        auto [y, x] = empty_cells_[idc];
         int delay = delayDist(rng_);
         food_sources_.push_back({y, x, delay, 1, 0, -1});
-        grid_[idx(y,x)] = static_cast<uint8_t>(TileType::FOOD_SOURCE);
+        grid_[idx(y, x)] = static_cast<uint8_t>(TileType::FOOD_SOURCE);
     }
 
+    // Rebuild all caches (common to both original functions)
     food_cell_to_idx_.assign(total_cells_, -1);
     for (size_t i = 0; i < food_sources_.size(); ++i) {
         const auto& fs = food_sources_[i];
@@ -971,14 +1031,22 @@ void GridMazeWorld::cacheResetState() {
 std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::reset(std::optional<int> seed) {
     if (seed) rng_.seed(*seed);
 
+    // ----- Determine actual food count for this episode -----
+    int new_food_count = getActualFoodSources();
+    if (new_food_count != n_food_sources_) {
+        n_food_sources_ = new_food_count;
+        // Containers that depend on n_food_sources_ will be re‑initialized
+        // inside initFoodSources() and the later call to cacheResetState().
+    }
+
     if (n_food_sources_ > 0) {
         std::fill(food_cell_to_idx_.begin(), food_cell_to_idx_.end(), -1);
         active_depleted_food_.clear();
-        std::fill(active_pos_.begin(), active_pos_.end(), -1);
+        active_pos_.assign(n_food_sources_, -1);   // will be resized again in initFoodSources, but safe
     }
 
     placeObstaclesWithConnectivity();
-    initFoodSources();
+    initFoodSources();      // uses the new n_food_sources_
 
     while (!regrow_heap_.empty()) regrow_heap_.pop();
     step_counter_ = 0;

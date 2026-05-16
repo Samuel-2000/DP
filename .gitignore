@@ -3,11 +3,12 @@ logs/
 results/benchmarks/
 __pycache__/
 *.pyc
-
 *.mp4
-*checkpoint.pt
-!final_checkpoint.pt
 
+models/
+!*final_checkpoint.pt
+!*best.pt
+!*.png
 
 *.json
 *.txt
@@ -19,5 +20,3 @@ __pycache__/
 *.exp
 *.lib
 
-results/
-models/

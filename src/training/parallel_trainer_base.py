@@ -335,14 +335,15 @@ class ParallelTrainerBase:
         exp_cfg = self.config['experiment']
         network_type = self.config['model']['type']
         use_aux = self.config['model']['use_auxiliary']
-        aux_str = 'aux' if use_aux else 'no_aux'
         algorithm = self.config['training']['algorithm']
+        optimizer = self.config['training']['optimizer']
+        aux_str = 'aux' if use_aux else 'no_aux'
 
         prefix = exp_cfg.get('prefix')
         if prefix:
-            base_dir = Path(exp_cfg['save_dir']) / prefix / network_type / algorithm / aux_str / self.model_name
+            base_dir = Path(exp_cfg['save_dir']) / prefix / network_type / algorithm / optimizer / aux_str / self.model_name
         else:
-            base_dir = Path(exp_cfg['save_dir']) / network_type / algorithm / aux_str / self.model_name
+            base_dir = Path(exp_cfg['save_dir']) / network_type / algorithm / optimizer / aux_str / self.model_name
 
         date_subfolder = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.experiment_dir = base_dir / date_subfolder
@@ -577,8 +578,9 @@ class ParallelTrainerBase:
             self.metrics['total_training_time'] += elapsed
             self.training_start_time = None
 
-    def _test_valid(self, epochs: int = 10) -> dict:
+    def _test_valid(self, epochs) -> dict:
         """Run test epochs using the configured test environment (task class + complexity)."""
+        fixed_b_size = 64
         self.agent.network.eval()
 
         test_env_config = self.config['environment'].copy()
@@ -592,20 +594,12 @@ class ParallelTrainerBase:
 
         test_seed = self.base_seed + 12345   # fixed offset for reproducibility
 
-        total_episodes = epochs * self.batch_size
+        total_episodes = epochs * fixed_b_size
         all_rewards = []
         all_lengths = []
 
         for _ in range(epochs):
-            #test_env = VectorizedMazeEnv(
-            #    num_envs=self.batch_size,
-            #    env_config=test_env_config,
-            #    base_seed=test_seed
-            #)
-
-
-
-            # Convert None to appropriate defaults
+            # Convert None to appropriate defaults (c++ doesnt have None)
             n_doors_val = test_env_config.get('n_doors')
             if n_doors_val is None:
                 n_doors_val = 0
@@ -620,7 +614,7 @@ class ParallelTrainerBase:
 
             # Unpack config dictionary to match C++ constructor
             test_env = maze_core.VectorizedMazeEnv(
-                num_envs=self.batch_size,
+                num_envs=fixed_b_size,
                 grid_size=test_env_config['grid_size'],
                 max_steps=test_env_config['max_steps'],
                 n_food_sources=test_env_config['n_food_sources'],
@@ -642,8 +636,8 @@ class ParallelTrainerBase:
             obs_array, _ = test_env.reset()
             obs_t = torch.as_tensor(obs_array, dtype=torch.long, device=self.device).unsqueeze(1)
 
-            rewards = np.zeros(self.batch_size)
-            lengths = np.zeros(self.batch_size, dtype=int)
+            rewards = np.zeros(fixed_b_size)
+            lengths = np.zeros(fixed_b_size, dtype=int)
 
             with torch.no_grad():
                 for step in range(max_steps):

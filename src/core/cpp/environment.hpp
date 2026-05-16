@@ -113,6 +113,7 @@ public:
 
 private:
     int grid_size_, max_steps_, n_food_sources_;
+    int requested_food_sources_;          // original constructor argument (may be <=0)
     float food_energy_, initial_energy_, energy_decay_, energy_per_step_;
     std::string task_class_;
     float complexity_level_;
@@ -223,7 +224,10 @@ private:
 
     void computeFinalArticulationPoints();
     bool placeDoorWithButtons(int y, int x);
-    void placeButtonsForDoor(int doorIdx);   // new: second‑phase button placement
+    void placeButtonsForDoor(int doorIdx);
     void connectIsolatedCells();
     bool checkComponentsMinSize(int y, int x, int minEmpty);
+
+    // Helper to compute number of food sources for the current episode (random if requested_food_sources_ <= 0)
+    int getActualFoodSources();
 };

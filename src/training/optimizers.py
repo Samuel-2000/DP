@@ -186,37 +186,37 @@ class OptimizerFactory:
             return optim.Adam(
                 parameters,
                 lr=lr,
-                betas=kwargs.get('betas', (0.9, 0.999)),
-                eps=kwargs.get('eps', 1e-8),
-                weight_decay=kwargs.get('weight_decay', 0.0)
+                #betas=kwargs.get('betas', (0.9, 0.999)),
+                #eps=kwargs.get('eps', 1e-8),
+                #weight_decay=kwargs.get('weight_decay', 0.0)
             )
         
         elif optimizer_name == 'adamw':
             return optim.AdamW(
                 parameters,
                 lr=lr,
-                betas=kwargs.get('betas', (0.9, 0.999)),
-                eps=kwargs.get('eps', 1e-8),
-                weight_decay=kwargs.get('weight_decay', 0.01)
+                #betas=kwargs.get('betas', (0.9, 0.999)),
+                #eps=kwargs.get('eps', 1e-8),
+                #weight_decay=kwargs.get('weight_decay', 0.01)
             )
         
         elif optimizer_name == 'sgd':
             return optim.SGD(
                 parameters,
                 lr=lr,
-                momentum=kwargs.get('momentum', 0.9),
-                weight_decay=kwargs.get('weight_decay', 0.0),
-                nesterov=kwargs.get('nesterov', False)
+                #momentum=kwargs.get('momentum', 0.9),
+                #weight_decay=kwargs.get('weight_decay', 0.0),
+                #nesterov=kwargs.get('nesterov', False)
             )
         
         elif optimizer_name == 'rmsprop':
             return optim.RMSprop(
                 parameters,
                 lr=lr,
-                alpha=kwargs.get('alpha', 0.99),
-                eps=kwargs.get('eps', 1e-8),
-                weight_decay=kwargs.get('weight_decay', 0.0),
-                momentum=kwargs.get('momentum', 0.0)
+                #alpha=kwargs.get('alpha', 0.99),
+                #eps=kwargs.get('eps', 1e-8),
+                #weight_decay=kwargs.get('weight_decay', 0.0),
+                #momentum=kwargs.get('momentum', 0.0)
             )
         
         else:
