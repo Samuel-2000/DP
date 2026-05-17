@@ -12,6 +12,7 @@ import random
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F  # ADDED
 from tqdm import tqdm
 
 from .parallel_trainer_base import ParallelTrainerBase
@@ -71,7 +72,6 @@ class ReinforceTrainer(ParallelTrainerBase):
         """
         Collect one episode from each parallel environment.
         """
-
         max_steps = self.vector_env[0].max_steps
 
         # Reset recurrent hidden state
@@ -218,9 +218,8 @@ class ReinforceTrainer(ParallelTrainerBase):
     def _compute_loss(self, experiences):
         """
         Compute policy and optional auxiliary losses.
-        Returns a loss tensor plus only the scalar metrics actually used by train().
+        Returns a loss tensor plus metrics dictionary.
         """
-
         obs = experiences["observations"]
         actions = experiences["actions"]
         rewards = experiences["rewards"]
@@ -242,7 +241,20 @@ class ReinforceTrainer(ParallelTrainerBase):
 
             logits, energy_pred, obs_pred = out
 
-            policy_loss, entropy = self.policy_loss_fn(
+            # Compute policy loss WITHOUT entropy for logging
+            # Use unnormalized advantages for logging to avoid zero values
+            log_probs = F.log_softmax(logits, dim=-1)
+            action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+            
+            # Compute returns (discounted)
+            returns = self.policy_loss_fn._compute_returns(rewards)
+            
+            # Use raw returns (not normalized) for policy loss logging
+            # This ensures non-zero values even when all returns are similar
+            policy_loss_only = -(action_log_probs * returns.detach()).mean()
+
+            # Full policy loss with entropy (used for training) - uses normalized advantages
+            policy_loss_with_entropy, entropy = self.policy_loss_fn(
                 logits,
                 actions,
                 rewards,
@@ -259,36 +271,61 @@ class ReinforceTrainer(ParallelTrainerBase):
                 mask,
             )
 
-            total_loss = policy_loss + aux_loss
+            # Extract component losses for logging
+            with torch.no_grad():
+                energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
+                obs_loss = F.mse_loss(obs_pred, obs_target.float())
+                if mask is not None:
+                    valid_ratio = mask.sum() / (mask.numel() + 1e-8)
+                    energy_loss = energy_loss * valid_ratio
+                    obs_loss = obs_loss * valid_ratio
+
+            total_loss = policy_loss_with_entropy + aux_loss
 
             metrics = {
                 "loss": self._scalar(total_loss.detach()),
                 "reward": self._scalar(reward_scalar.detach()),
+                "policy_loss": self._scalar(policy_loss_only.detach()),
+                "aux_loss": self._scalar(aux_loss.detach()),
+                "energy_loss": self._scalar(energy_loss.detach()),
+                "obs_loss": self._scalar(obs_loss.detach()),
             }
 
         else:
             logits = self.agent.network(obs)
 
-            policy_loss, entropy = self.policy_loss_fn(
+            # Compute policy loss WITHOUT entropy for logging
+            log_probs = F.log_softmax(logits, dim=-1)
+            action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+            
+            # Compute returns (discounted)
+            returns = self.policy_loss_fn._compute_returns(rewards)
+            
+            # Use raw returns (not normalized) for policy loss logging
+            policy_loss_only = -(action_log_probs * returns.detach()).mean()
+
+            # Full policy loss with entropy (used for training) - uses normalized advantages
+            policy_loss_with_entropy, entropy = self.policy_loss_fn(
                 logits,
                 actions,
                 rewards,
             )
 
-            total_loss = policy_loss
+            total_loss = policy_loss_with_entropy
 
             metrics = {
                 "loss": self._scalar(total_loss.detach()),
                 "reward": self._scalar(reward_scalar.detach()),
+                "policy_loss": self._scalar(policy_loss_only.detach()),
             }
 
         return total_loss, metrics
+
 
     def _train_step(self, experiences):
         """
         Perform one optimization step.
         """
-
         self.agent.network.train()
 
         loss, metrics = self._compute_loss(experiences)
@@ -307,7 +344,6 @@ class ReinforceTrainer(ParallelTrainerBase):
         """
         Main REINFORCE training loop.
         """
-
         self._run_initial_test()
         dummy = self._setup_visualization()
 
@@ -372,6 +408,11 @@ class ReinforceTrainer(ParallelTrainerBase):
 
                         self.metrics["train_rewards"].append(reward)
                         self.metrics["train_losses"].append(metrics["loss"])
+                        self.metrics.setdefault("policy_losses", []).append(metrics.get("policy_loss", 0))
+                        if self.agent.use_auxiliary:
+                            self.metrics.setdefault("aux_losses", []).append(metrics.get("aux_loss", 0.0))
+                            self.metrics.setdefault("energy_losses", []).append(metrics.get("energy_loss", 0.0))
+                            self.metrics.setdefault("obs_losses", []).append(metrics.get("obs_loss", 0.0))
                         epoch_rewards.append(reward)
                         self.lr_scheduler.step()
 
@@ -392,6 +433,11 @@ class ReinforceTrainer(ParallelTrainerBase):
 
                     self.metrics["train_rewards"].append(reward)
                     self.metrics["train_losses"].append(metrics["loss"])
+                    self.metrics.setdefault("policy_losses", []).append(metrics.get("policy_loss", 0))
+                    if self.agent.use_auxiliary:
+                        self.metrics.setdefault("aux_losses", []).append(metrics.get("aux_loss", 0.0))
+                        self.metrics.setdefault("energy_losses", []).append(metrics.get("energy_loss", 0.0))
+                        self.metrics.setdefault("obs_losses", []).append(metrics.get("obs_loss", 0.0))
                     epoch_rewards = [reward]
                     self.lr_scheduler.step()
 

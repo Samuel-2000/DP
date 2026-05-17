@@ -1,6 +1,7 @@
 """
 PPO trainer with rollout buffer, GAE, and clipped surrogate objective.
 Optimized for speed: vectorized GAE, pre-allocated buffers, no_grad for rollout only.
+Supports auxiliary tasks.
 """
 
 import torch
@@ -9,7 +10,7 @@ from tqdm import tqdm
 import time
 import cv2
 from .parallel_trainer_base import ParallelTrainerBase
-from src.training.losses import PPOLoss
+from src.training.losses import PPOLoss, AuxiliaryLoss
 
 from src.core.constants import OBSERVATION_SIZE
 
@@ -50,6 +51,10 @@ class PPOTrainer(ParallelTrainerBase):
             gae_lambda=self.gae_lambda
         )
 
+        if self.agent.use_auxiliary:
+            self.aux_loss_fn = AuxiliaryLoss(energy_coef=0.1, obs_coef=0.05)
+        else:
+            self.aux_loss_fn = None
 
     def _collect_rollout(self) -> dict:
         max_steps = self.vector_env[0].max_steps
@@ -57,7 +62,6 @@ class PPOTrainer(ParallelTrainerBase):
         device = self.device
 
         obs_array, _ = self.vector_env.reset()
-        # Convert obs_array to numpy array (C++ returns list of lists)
         obs_array = np.array(obs_array, dtype=np.int64)
         self.agent.reset()
 
@@ -75,6 +79,7 @@ class PPOTrainer(ParallelTrainerBase):
         }
         if self.agent.use_auxiliary:
             storage['energies'] = [None] * max_steps
+            storage['next_obs'] = [None] * max_steps
 
         with torch.no_grad():
             for step in range(max_steps):
@@ -98,10 +103,8 @@ class PPOTrainer(ParallelTrainerBase):
                 self.action_buffer[:] = actions_cpu
                 actions_np = self.action_buffer
 
-                # Step environments – returns lists from C++
                 obs_array, rewards_list, terminated_list, truncated_list, infos = self.vector_env.step(actions_np)
-                
-                # Convert to numpy arrays
+
                 obs_array = np.array(obs_array, dtype=np.int64)
                 rewards = np.array(rewards_list, dtype=np.float32)
                 terminated = np.array(terminated_list, dtype=bool)
@@ -115,13 +118,18 @@ class PPOTrainer(ParallelTrainerBase):
                 storage['dones'][step] = self.done_tensor.clone()
 
                 if self.agent.use_auxiliary:
-                    energies = [info.get('energy', 0.0) for info in infos]
+                    # Store current energy and next observation as targets
+                    energies = [info.energy for info in infos]
                     if not hasattr(self, 'energy_tensor'):
                         self.energy_tensor = torch.empty(B, dtype=torch.float32, device=device)
                     self.energy_tensor.copy_(torch.from_numpy(np.array(energies)).to(device, non_blocking=True))
                     storage['energies'][step] = self.energy_tensor.clone()
 
-                # Prepare next observation (now obs_array is numpy)
+                    # Next observation target (what we will predict from current state)
+                    next_obs_tensor = torch.from_numpy(obs_array).unsqueeze(1).to(device, non_blocking=True)
+                    storage['next_obs'][step] = next_obs_tensor.squeeze(1).clone()
+
+                # Prepare next observation
                 self.obs_tensor.copy_(torch.from_numpy(obs_array).unsqueeze(1).to(device, non_blocking=True))
 
                 if dones.all():
@@ -154,6 +162,7 @@ class PPOTrainer(ParallelTrainerBase):
         }
         if self.agent.use_auxiliary:
             experiences['energy_targets'] = storage['energies']
+            experiences['obs_targets'] = storage['next_obs']
 
         return experiences
 
@@ -166,6 +175,9 @@ class PPOTrainer(ParallelTrainerBase):
         # Detach tensors that should not have gradients
         for key in ['old_logits', 'old_values', 'advantages', 'returns', 'mask']:
             experiences[key] = experiences[key].detach()
+        if self.agent.use_auxiliary:
+            experiences['energy_targets'] = experiences['energy_targets'].detach()
+            experiences['obs_targets'] = experiences['obs_targets'].detach()
 
         metrics_sum = {}
         network = self.agent.network
@@ -173,7 +185,6 @@ class PPOTrainer(ParallelTrainerBase):
         scaler = self.scaler
         use_amp = self.use_amp
 
-        # Ensure network is in training mode for backward pass
         network.train()
 
         for _ in range(self.ppo_intra_epochs):
@@ -184,24 +195,70 @@ class PPOTrainer(ParallelTrainerBase):
 
                 self.agent.reset()   # resets LSTM/transformer memory to zeros
 
-                # Forward pass – need gradients
                 if use_amp:
                     with torch.amp.autocast('cuda'):
-                        outputs = network(batch['observations'], return_auxiliary=False, return_value=True)
+                        outputs = network(
+                            batch['observations'],
+                            return_auxiliary=self.agent.use_auxiliary,
+                            return_value=True
+                        )
                         logits = outputs[0]
                         values = outputs[-1].squeeze(-1)
                         loss, metrics = self.ppo_loss_fn(
                             logits, batch['old_logits'], batch['actions'],
                             batch['advantages'], batch['returns'], values, batch['mask']
                         )
+                        if self.agent.use_auxiliary:
+                            energy_pred = outputs[1]
+                            obs_pred = outputs[2]
+                            aux_loss = self.aux_loss_fn(
+                                energy_pred, batch['energy_targets'],
+                                obs_pred, batch['obs_targets'].float(),
+                                batch['mask']
+                            )
+                            loss = loss + aux_loss
+                            metrics['aux_loss'] = aux_loss.item()
+                            # Compute component losses for logging
+                            with torch.no_grad():
+                                energy_loss = torch.nn.functional.mse_loss(energy_pred.squeeze(-1), batch['energy_targets'])
+                                obs_loss = torch.nn.functional.mse_loss(obs_pred, batch['obs_targets'].float())
+                                if batch['mask'] is not None:
+                                    valid_ratio = batch['mask'].sum() / (batch['mask'].numel() + 1e-8)
+                                    energy_loss = energy_loss * valid_ratio
+                                    obs_loss = obs_loss * valid_ratio
+                                metrics['energy_loss'] = energy_loss.item()
+                                metrics['obs_loss'] = obs_loss.item()
                 else:
-                    outputs = network(batch['observations'], return_auxiliary=False, return_value=True)
+                    outputs = network(
+                        batch['observations'],
+                        return_auxiliary=self.agent.use_auxiliary,
+                        return_value=True
+                    )
                     logits = outputs[0]
                     values = outputs[-1].squeeze(-1)
                     loss, metrics = self.ppo_loss_fn(
                         logits, batch['old_logits'], batch['actions'],
                         batch['advantages'], batch['returns'], values, batch['mask']
                     )
+                    if self.agent.use_auxiliary:
+                        energy_pred = outputs[1]
+                        obs_pred = outputs[2]
+                        aux_loss = self.aux_loss_fn(
+                            energy_pred, batch['energy_targets'],
+                            obs_pred, batch['obs_targets'].float(),
+                            batch['mask']
+                        )
+                        loss = loss + aux_loss
+                        metrics['aux_loss'] = aux_loss.item()
+                        with torch.no_grad():
+                            energy_loss = torch.nn.functional.mse_loss(energy_pred.squeeze(-1), batch['energy_targets'])
+                            obs_loss = torch.nn.functional.mse_loss(obs_pred, batch['obs_targets'].float())
+                            if batch['mask'] is not None:
+                                valid_ratio = batch['mask'].sum() / (batch['mask'].numel() + 1e-8)
+                                energy_loss = energy_loss * valid_ratio
+                                obs_loss = obs_loss * valid_ratio
+                            metrics['energy_loss'] = energy_loss.item()
+                            metrics['obs_loss'] = obs_loss.item()
 
                 optimizer.zero_grad(set_to_none=True)
                 if use_amp:
@@ -244,7 +301,7 @@ class PPOTrainer(ParallelTrainerBase):
 
             if self._should_save(epoch):
                 self._save_checkpoint(epoch)
-        
+
             experiences = self._collect_rollout()
             train_metrics = self._train_step(experiences)
 
@@ -256,6 +313,10 @@ class PPOTrainer(ParallelTrainerBase):
                 self.metrics.setdefault('value_losses', []).append(train_metrics['value_loss'])
             if 'entropy' in train_metrics:
                 self.metrics.setdefault('entropies', []).append(train_metrics['entropy'])
+            if self.agent.use_auxiliary:
+                self.metrics.setdefault('aux_losses', []).append(train_metrics.get('aux_loss', 0.0))
+                self.metrics.setdefault('energy_losses', []).append(train_metrics.get('energy_loss', 0.0))
+                self.metrics.setdefault('obs_losses', []).append(train_metrics.get('obs_loss', 0.0))
 
             self.lr_scheduler.step()
 

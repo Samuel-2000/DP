@@ -27,43 +27,56 @@ from src.core.constants import OBSERVATION_SIZE, ACTION_SIZE
 def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increase_threshold: float, decrease_threshold: float):
     """Generate all training plots from a metrics dictionary."""
     plots_dir.mkdir(parents=True, exist_ok=True)
+    png_dir = plots_dir / "png"
+    pdf_dir = plots_dir / "pdf"
+    png_dir.mkdir(exist_ok=True)
+    pdf_dir.mkdir(exist_ok=True)
 
     def save_plot(fig, name):
-        path = plots_dir / f"{name}.png"
-        fig.savefig(str(path), dpi=150, bbox_inches='tight')
+        png_path = png_dir / f"{name}.png"
+        pdf_path = pdf_dir / f"{name}.pdf"
+        fig.savefig(str(png_path), dpi=150, bbox_inches='tight')
+        fig.savefig(str(pdf_path), bbox_inches='tight')
         plt.close(fig)
 
-    # ---- 1. Training Rewards (raw) + Test Rewards (exact epochs) ----
+    total_seconds = metrics.get('total_training_time', 0.0)
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    time_str = f"Total time: {hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    # ---- 1. Training Rewards (raw) + Test Rewards ----
     fig, ax = plt.subplots(figsize=(8, 5))
     rewards = np.array(metrics['train_rewards'])
     epochs = np.arange(len(rewards))
     ax.plot(epochs, rewards, 'b-', alpha=0.7, linewidth=1, label='Train Reward (raw)')
-    if 'test_rewards' in metrics and len(metrics['test_rewards']) > 0:
-        test_rewards = metrics['test_rewards']
-        if 'test_epochs' in metrics and len(metrics['test_epochs']) == len(test_rewards):
+    
+    test_rewards_list = metrics.get('test_rewards', [])
+    if hasattr(test_rewards_list, '__len__') and len(test_rewards_list) > 0:
+        best_test_reward = float(np.max(test_rewards_list))
+        if 'test_epochs' in metrics and len(metrics['test_epochs']) == len(test_rewards_list):
             test_epochs = metrics['test_epochs']
         else:
-            test_interval = max(1, len(rewards) // len(test_rewards))
-            test_epochs = np.arange(0, len(test_rewards) * test_interval, test_interval)
-        ax.plot(test_epochs, test_rewards, 'g-o', linewidth=1.5, markersize=6, label='Test Reward')
+            test_interval = max(1, len(rewards) // len(test_rewards_list))
+            test_epochs = np.arange(0, len(test_rewards_list) * test_interval, test_interval)
+        ax.plot(test_epochs, test_rewards_list, 'g-o', linewidth=1.5, markersize=6, label='Test Reward')
+    else:
+        best_test_reward = 0.0
+
     ax.set_title('Training & Test Rewards (raw)')
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Reward')
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    # Add total training time annotation
-    total_seconds = metrics.get('total_training_time', 0.0)
-    hours = int(total_seconds // 3600)
-    minutes = int((total_seconds % 3600) // 60)
-    seconds = int(total_seconds % 60)
-    time_str = f"Total time: {hours:02d}:{minutes:02d}:{seconds:02d}"
+    best_test_str = f"Best test reward: {best_test_reward:.2f}"
     ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
             fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
-
+    ax.text(0.98, 0.92, best_test_str, transform=ax.transAxes, ha='right', va='top',
+            fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
     save_plot(fig, 'rewards')
 
-    # ---- 2. Training Losses (total + policy) ----
+    # ---- 2. Training Losses (total + policy) - unchanged ----
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(metrics['train_losses'], 'r-', alpha=0.7, label='Total Loss')
     if 'policy_losses' in metrics and len(metrics['policy_losses']) > 0:
@@ -73,19 +86,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     ax.set_ylabel('Loss')
     ax.legend()
     ax.grid(True, alpha=0.3)
-
-    # Add total training time annotation
-    total_seconds = metrics.get('total_training_time', 0.0)
-    hours = int(total_seconds // 3600)
-    minutes = int((total_seconds % 3600) // 60)
-    seconds = int(total_seconds % 60)
-    time_str = f"Total time: {hours:02d}:{minutes:02d}:{seconds:02d}"
     ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
             fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
-
     save_plot(fig, 'losses')
 
-    # ---- 3. Auxiliary Losses ----
+    # ---- 3. Auxiliary Losses (if available) - unchanged ----
     if 'aux_losses' in metrics and len(metrics['aux_losses']) > 0:
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(metrics['aux_losses'], label='Total Aux Loss', color='purple')
@@ -99,9 +104,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         ax.set_yscale('log')
         ax.legend()
         ax.grid(True, alpha=0.3)
+        ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+                fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         save_plot(fig, 'aux_losses')
 
-    # ---- 4. Complexity & Task Class Progression ----
+    # ---- 4. Complexity & Task Class Progression - unchanged ----
     if 'complexity_history' in metrics and len(metrics['complexity_history']) > 0:
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(metrics['complexity_history'], 'b-', linewidth=1, label='Complexity')
@@ -131,9 +138,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         else:
             ax.legend()
         ax.set_title('Complexity Progression (raw)')
+        ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+                fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         save_plot(fig, 'complexity')
 
-    # ---- 5. Performance Scores (colored by config change) ----
+    # ---- 5. Performance Scores (colored by config change) - unchanged ----
     if 'performance_scores' in metrics and len(metrics['performance_scores']) > 0 and 'complexity_history' in metrics:
         fig, ax = plt.subplots(figsize=(8, 5))
         scores = np.array(metrics['performance_scores'])
@@ -172,9 +181,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
             ax.set_ylabel('Score')
             ax.set_ylim(0, 1.1)
             ax.grid(True, alpha=0.3)
+            ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+                    fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
             save_plot(fig, 'performance_scores')
 
-    # ---- 6. Complexity vs Reward (raw) ----
+    # ---- 6. Complexity vs Reward (raw) - unchanged ----
     if 'complexity_history' in metrics and len(metrics['train_rewards']) > 10:
         fig, ax = plt.subplots(figsize=(8, 5))
         complexities = np.array(metrics['complexity_history'])
@@ -192,9 +203,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         ax.set_xlabel('Complexity Level')
         ax.set_ylabel('Reward')
         ax.grid(True, alpha=0.3)
+        ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+                fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         save_plot(fig, 'complexity_vs_reward')
 
-    # ---- 7. Reward vs Complexity per stage ----
+    # ---- 7. Reward vs Complexity per stage - unchanged ----
     if 'task_class_history' in metrics and len(metrics['task_class_history']) > 0:
         stage_order = ['basic', 'doors', 'buttons', 'complex']
         unique_stages = [s for s in stage_order if s in metrics['task_class_history']]
@@ -233,9 +246,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
             ax.set_ylabel('Reward')
             ax.grid(True, alpha=0.3)
             ax.legend()
+            ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
+                    fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
             save_plot(fig, f'reward_vs_complexity_stage_{stage}')
 
-
+            
 class ParallelTrainerBase:
     """
     Base class for parallel training with vectorized environments.
