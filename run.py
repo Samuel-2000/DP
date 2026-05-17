@@ -71,9 +71,9 @@ def main():
         return
 
     env_config = {
-        "grid_size": DEFAULT_GRID_SIZE,
-        "max_steps": DEFAULT_MAX_STEPS,
-        "n_food_sources": DEFAULT_FOOD_SOURCES,
+        "grid_size": args.grid_size,
+        "max_steps": args.max_steps,
+        "n_food_sources": args.food_sources,
         "food_energy": DEFAULT_FOOD_ENERGY,
         "initial_energy": DEFAULT_INITIAL_ENERGY,
         "energy_decay": DEFAULT_ENERGY_DECAY,
@@ -87,6 +87,7 @@ def main():
         "n_buttons_per_door": args.n_buttons_per_door,
         "button_break_probability": args.button_break_probability
     }
+
 
     if args.command == "train":
         # Build configuration dictionary directly from arguments
@@ -169,7 +170,7 @@ def main():
         # Determine test configurations
         if args.dynamic_complexity:
             test_configs = []
-            for stage in args.stages:
+            for stage in args.curriculum_stages:
                 for comp in args.complexities:
                     test_configs.append(env_config.copy())
                     test_configs[-1]["task_class"] = stage

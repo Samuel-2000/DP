@@ -81,8 +81,6 @@ def parse_args():
     train_parser.add_argument("--stagnation-switch-interval", type=int, default=None)
     train_parser.add_argument("--stagnation-termination", type=int, default=None)
     train_parser.add_argument("--min-basic-complexity", type=float, default=None)
-    train_parser.add_argument("--curriculum-stages", nargs="+", default=None,
-                              choices=["basic","doors","buttons","complex"])
     # ---------- train command ----------
 
     # ---------- test command ----------
@@ -100,6 +98,11 @@ def parse_args():
 
     for general_parser in [train_parser, test_parser]:
         general_parser.add_argument("--epochs", required=True, type=int)
+
+        general_parser.add_argument("--max-steps", type=int, default=None, help="Episode max steps count.")
+        general_parser.add_argument("--grid-size", type=int, default=None, help="Size of the maze grid (width=height).")
+        general_parser.add_argument("--food-sources", type=int, default=None, help="Number of food sources. If None, the environment chooses automatically.")
+
         general_parser.add_argument("--reinforce-intra-epochs", type=int, default=1, help="Number of same grid intra epochs during 1 epoch")
         general_parser.add_argument("--grid-change-prob", type=float, default=0.0, help="Probability to generate a new grid between episodes (else pick random from pool)")
 
@@ -111,7 +114,7 @@ def parse_args():
         general_parser.add_argument("--complexity-level", type=float, default=None)
 
         # Optional filters for dynamic complexity
-        general_parser.add_argument("--stages", nargs="+", choices=["basic","doors","buttons","complex"], default=["basic","doors","buttons","complex"])
+        general_parser.add_argument("--curriculum-stages", nargs="+", choices=["basic","doors","buttons","complex"], default=["basic","doors","buttons","complex"])
         general_parser.add_argument("--complexities", nargs="+", type=float, default=[0.0,0.25,0.5,0.75,1.0])
         
         general_parser.add_argument("--n-doors", type=int, default=None)
@@ -167,8 +170,8 @@ def parse_args():
     if args.dynamic_complexity:
         defaults.update({
             "performance_window": 10,
-            "complexity_increase_threshold": 0.65,
-            "complexity_decrease_threshold": 0.4,
+            "complexity_increase_threshold": 0.60,
+            "complexity_decrease_threshold": 0.35,
             "complexity_step": 0.05,
             "min_complexity": 0.0,
             "max_complexity": 1.0,
@@ -182,10 +185,15 @@ def parse_args():
     if args.command == "train":
         defaults.update({
             "optimizer": "adam",
-            "weight_decay": 0.0
         })
         if args.auxiliary_tasks:
             print(f"Info: auxiliary tasks enabled")
+
+    defaults.update({
+        "max_steps": 100,
+        "grid_size": 11,
+        "food_sources": 0
+    })
 
     # Iterate over each argument and assign default if None
     for arg_name, default_value in defaults.items():

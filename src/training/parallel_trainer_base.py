@@ -337,7 +337,7 @@ class ParallelTrainerBase:
         use_aux = self.config['model']['use_auxiliary']
         algorithm = self.config['training']['algorithm']
         optimizer = self.config['training']['optimizer']
-        aux_str = 'aux' if use_aux else 'no_aux'
+        aux_str = 'with_aux' if use_aux else 'no_aux'
 
         prefix = exp_cfg.get('prefix')
         if prefix:
