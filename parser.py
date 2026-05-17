@@ -32,7 +32,7 @@ def parse_args():
 
             # Resume training
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume ./models/lstm/ppo/no_aux/64b_0.0005lr_gs11_pie1_mb64/2026-05-08_23-23-46/weights/final_checkpoint.pt
-
+            python run.py train --network-type lstm --epochs 500 --batch-size 64 --lr 0.0002 --dynamic-complexity --curriculum-stages basic --test-task-class basic --test-complexity-level 1.0 --algorithm ppo --ppo-intra-epochs 2 --mini-batch-size 64 --grid-size 19 --max-steps 200 --experiment-name grid_size_experiment --resume ./models/grid_size_experiment/lstm/ppo/adam/no_aux/64b_0.0002lr_gs19_pie2_mb64/2026-05-17_20-37-53/weights/final_checkpoint.pt  
 
         """
     )

@@ -709,15 +709,20 @@ class ParallelTrainerBase:
             'config': self.config.copy()
         }
         if self.dynamic and self.complexity_manager:
+            cm = self.complexity_manager
             checkpoint['complexity_manager_state'] = {
-                'current_stage_idx': self.complexity_manager.current_stage_idx,
-                'performance_history': list(self.complexity_manager.performance_history),
-                'adjustments_made': self.complexity_manager.adjustments_made,
-                'stage_complexities': self.complexity_manager.stage_complexities,
-                'max_rewards_by_stage': self.complexity_manager.max_rewards_by_stage,
-                'epochs_without_progress': self.complexity_manager.epochs_without_progress,
-                'last_complexity_increase_epoch': self.complexity_manager.last_complexity_increase_epoch,
-                'last_max_reward': self.complexity_manager.last_max_reward,
+                'current_stage_idx': cm.current_stage_idx,
+                'performance_history': list(cm.performance_history),
+                'adjustments_made': cm.adjustments_made,
+                'stage_complexities': cm.stage_complexities.copy(),
+                'max_rewards_by_stage': cm.max_rewards_by_stage.copy(),
+                'epochs_without_progress': cm.epochs_without_progress,
+                'last_complexity_increase_epoch': cm.last_complexity_increase_epoch,
+                'last_max_reward': cm.last_max_reward,
+                'stage_selection_counts': cm.stage_selection_counts.copy(),
+                'total_switches': cm.total_switches,
+                'linear_cycle_complete': cm.linear_cycle_complete,
+                # curriculum_stages is static and already in config, no need to save
             }
         torch.save(checkpoint, str(checkpoint_path))
         self.logger.info(f"Saved checkpoint to {checkpoint_path}")
@@ -734,10 +739,30 @@ class ParallelTrainerBase:
         self.agent.network.load_state_dict(checkpoint['model_state_dict'], strict=False)
         if self.dynamic and self.complexity_manager and 'complexity_manager_state' in checkpoint:
             cm_state = checkpoint['complexity_manager_state']
-            self.complexity_manager.current_stage_idx = cm_state['current_stage_idx']
-            self.complexity_manager.performance_history = deque(cm_state['performance_history'],
-                                                                maxlen=self.complexity_manager.performance_window)
-            self.complexity_manager.adjustments_made = cm_state['adjustments_made']
+            cm = self.complexity_manager
+            cm.current_stage_idx = cm_state['current_stage_idx']
+            cm.performance_history = deque(cm_state['performance_history'],
+                                        maxlen=cm.performance_window)
+            cm.adjustments_made = cm_state['adjustments_made']
+            cm.stage_complexities = cm_state['stage_complexities']
+            cm.max_rewards_by_stage = cm_state['max_rewards_by_stage']
+            cm.epochs_without_progress = cm_state['epochs_without_progress']
+            cm.last_complexity_increase_epoch = cm_state['last_complexity_increase_epoch']
+            cm.last_max_reward = cm_state['last_max_reward']
+            cm.stage_selection_counts = cm_state['stage_selection_counts']
+            cm.total_switches = cm_state['total_switches']
+            cm.linear_cycle_complete = cm_state['linear_cycle_complete']
+
+            # Ensure the stored stage complexities still match the current curriculum.
+            # If the user changed the curriculum_stages in command line, warn and adapt.
+            if set(cm.stage_complexities.keys()) != set(cm.curriculum_stages):
+                self.logger.warning(
+                    f"Curriculum stages changed from {list(cm.stage_complexities.keys())} "
+                    f"to {cm.curriculum_stages}. Resetting stage complexities."
+                )
+                for stage in cm.curriculum_stages:
+                    cm.stage_complexities[stage] = cm_state['stage_complexities'].get(stage, 0.0)
+                    
         self.logger.info(f"Resumed from {path} at epoch {len(self.metrics['train_rewards'])}")
 
     def _save_metrics(self):
