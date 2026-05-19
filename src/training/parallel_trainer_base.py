@@ -93,11 +93,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     # ---- 3. Auxiliary Losses (if available) - unchanged ----
     if 'aux_losses' in metrics and len(metrics['aux_losses']) > 0:
         fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(metrics['aux_losses'], label='Total Aux Loss', color='purple')
+        ax.plot(metrics['aux_losses'], label='Total Aux Loss', color='purple', alpha=0.6)
         if 'energy_losses' in metrics and len(metrics['energy_losses']) > 0:
-            ax.plot(metrics['energy_losses'], label='Energy MSE', color='orange')
+            ax.plot(metrics['energy_losses'], label='Energy MSE', color='orange', alpha=0.6)
         if 'obs_losses' in metrics and len(metrics['obs_losses']) > 0:
-            ax.plot(metrics['obs_losses'], label='Obs MSE', color='green')
+            ax.plot(metrics['obs_losses'], label='Obs MSE', color='green', alpha=0.6)
         ax.set_title('Auxiliary Losses')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Loss')
@@ -762,7 +762,7 @@ class ParallelTrainerBase:
                 )
                 for stage in cm.curriculum_stages:
                     cm.stage_complexities[stage] = cm_state['stage_complexities'].get(stage, 0.0)
-                    
+
         self.logger.info(f"Resumed from {path} at epoch {len(self.metrics['train_rewards'])}")
 
     def _save_metrics(self):

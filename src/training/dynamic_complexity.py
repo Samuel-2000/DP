@@ -86,6 +86,9 @@ class ComplexityManager:
     def should_switch_stage(self, epoch: int) -> bool:
         if not self.enabled:
             return False
+        # If only one stage, never switch (stagnation logic would just cause unnecessary resets)
+        if len(self.curriculum_stages) == 1:
+            return False
         current_stage = self.get_current_task_class()
         current_complexity = self.stage_complexities[current_stage]
         if current_stage == 'basic' and current_complexity < self.min_basic_complexity:

@@ -41,6 +41,7 @@ def parse_args():
     # ---------- train command ----------
     train_parser = subparsers.add_parser("train", help="Train a model")
     train_parser.add_argument("--network-type", required=True, choices=["lstm", "transformer", "multimemory"])
+    train_parser.add_argument("--hidden-size", type=int, default=None)
     train_parser.add_argument("--batch-size", required=True, type=int)
     train_parser.add_argument("--lr", required=True, type=float)
     train_parser.add_argument("--optimizer", type=str, default=None)
@@ -177,7 +178,7 @@ def parse_args():
             "max_complexity": 1.0,
             "adjustment_interval": 50,
             "stagnation_switch_interval": 250,
-            "stagnation_termination": 2000,
+            "stagnation_termination": 2000, # unused in code.
             "min_basic_complexity": 0.2,
             "curriculum_stages": ["basic", "doors", "buttons", "complex"],
         })
@@ -185,9 +186,11 @@ def parse_args():
     if args.command == "train":
         defaults.update({
             "optimizer": "adam",
+            "hidden_size": 512
         })
         if args.auxiliary_tasks:
             print(f"Info: auxiliary tasks enabled")
+
 
     defaults.update({
         "max_steps": 100,

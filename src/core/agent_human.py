@@ -99,7 +99,7 @@ class HumanAgent:
 
                 vid_name = f"human_{env.task_class}_comp_{env.complexity_level:.2f}_ep_{epoch}_{ep_in_epoch}"
                 vid_path = Path("results/videos") / f"{vid_name}.{'gif' if args.as_gif else 'mp4'}" if args.save_video else None
-                viz = Visualizer(env, args.save_video, vid_path, args.agent_view, args.fog_of_war, args.show_trail, args.as_gif)
+                viz = Visualizer(env, args.save_video, vid_path, args.agent_view, args.fog_of_war, args.show_trail, args.as_gif, render_size = 512)
 
                 print(f"\nEpisode {total_episodes + 1} (epoch {epoch+1}, episode {ep_in_epoch+1}/{args.reinforce_intra_epochs})")
                 episode_reward = 0

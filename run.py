@@ -15,11 +15,10 @@ from src.core.agent import Agent
 from src.core.agent_human import HumanAgent
 from src.core.utils import get_model_name_from_path
 from src.core.constants import (
-    DEFAULT_GRID_SIZE, DEFAULT_MAX_STEPS,
-    DEFAULT_FOOD_SOURCES, DEFAULT_FOOD_ENERGY, DEFAULT_INITIAL_ENERGY,
+    DEFAULT_FOOD_ENERGY, DEFAULT_INITIAL_ENERGY,
     DEFAULT_ENERGY_DECAY, DEFAULT_ENERGY_PER_STEP, DEFAULT_RENDER_SIZE,
     DEFAULT_DOOR_OPEN_DURATION, DEFAULT_DOOR_CLOSE_DURATION,
-    DEFAULT_HIDDEN_SIZE, DEFAULT_GAMMA, DEFAULT_ENTROPY_COEF,
+   DEFAULT_GAMMA, DEFAULT_ENTROPY_COEF,
     DEFAULT_MAX_GRAD_NORM, DEFAULT_SAVE_INTERVAL, DEFAULT_TEST_INTERVAL,
 )
 
@@ -102,7 +101,7 @@ def main():
             "environment": env_config,
             "model": {
                 "type": args.network_type,
-                "hidden_size": DEFAULT_HIDDEN_SIZE,
+                "hidden_size": args.hidden_size,
                 "use_auxiliary": args.auxiliary_tasks,
             },
             "training": {

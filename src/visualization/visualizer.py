@@ -9,13 +9,14 @@ class Visualizer:
     """Handles all visualisation effects and video saving for an episode."""
 
     def __init__(self, env, save_video: bool, video_path: Optional[Path],
-                 agent_view: bool, fog_of_war: bool, show_trail: bool, as_gif: bool):
+                 agent_view: bool, fog_of_war: bool, show_trail: bool, as_gif: bool, render_size: int):
         self.env = env
         self.save_video = save_video
         self.agent_view = agent_view
         self.fog_of_war = fog_of_war
         self.show_trail = show_trail
         self.as_gif = as_gif
+        self.render_size = render_size
 
         self.visited: Set[Tuple[int, int]] = set()
         self.trail: List[Tuple[int, int, int]] = []  # (y, x, step)
@@ -27,8 +28,6 @@ class Visualizer:
             if as_gif:
                 self.video_path = video_path
             else:
-                # Get render size from the environment (if available) or default to 512
-                render_size = getattr(env, 'render_size', 512)
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 self.video_writer = cv2.VideoWriter(str(video_path), fourcc, 20.0, (render_size, render_size))
 
@@ -46,7 +45,7 @@ class Visualizer:
         Get the environment frame, apply visual effects, and optionally store/display.
         Returns the processed frame (ready for display).
         """
-        raw_frame = self.env.render()
+        raw_frame = self.env.render(self.render_size)
         if raw_frame is None:
             return None
 

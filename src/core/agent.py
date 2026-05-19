@@ -189,9 +189,7 @@ class Agent:
     
 
     def test(self, env, args, model_name: str, seed: int) -> Dict[str, Any]:
-        """
-        Test the agent over multiple test epochs with options from args.
-        """
+        """Test the agent over multiple test epochs with options from args."""
         self.network.eval()
         all_rewards = []
         all_success_flags = []
@@ -201,14 +199,13 @@ class Agent:
             model_name = f"{self.network_type}_model"
         clean_model_name = model_name.replace('/', '_').replace('\\', '_')
 
-        original_render_size = env.render_size
-        if args.visualize or args.save_video:
-            env.render_size = 512
-
+        render_size = 512 if (args.visualize or args.save_video) else 0
         total_episodes = 0
 
         for epoch in range(args.epochs):
-            obs, info = env.reset(seed=seed)
+            obs, info = env.reset()
+            if isinstance(obs, list):
+                obs = np.array(obs, dtype=np.int32)
             self.reset()
 
             print(f"\n--- Epoch {epoch+1}/{args.epochs}: New grid (Type: {env.task_class}, Complexity: {env.complexity_level:.2f}) ---")
@@ -216,11 +213,14 @@ class Agent:
             for ep_in_epoch in range(args.reinforce_intra_epochs):
                 if ep_in_epoch > 0:
                     obs, info = env.soft_reset()
+                    if isinstance(obs, list):
+                        obs = np.array(obs, dtype=np.int32)
 
-                # Build video filename
                 vid_name = f"{clean_model_name}_{env.task_class}_comp_{env.complexity_level:.2f}_ep_{epoch}_{ep_in_epoch}"
                 vid_path = Path("results/videos") / f"{vid_name}.{'gif' if args.as_gif else 'mp4'}" if args.save_video else None
-                viz = Visualizer(env, args.save_video, vid_path, args.agent_view, args.fog_of_war, args.show_trail, args.as_gif)
+                viz = Visualizer(env, args.save_video, vid_path, args.agent_view,
+                                args.fog_of_war, args.show_trail, args.as_gif,
+                                render_size=render_size)
 
                 episode_reward = 0
                 steps = 0
@@ -233,6 +233,8 @@ class Agent:
 
                     action = self.act(obs, training=False)
                     obs, reward, terminated, truncated, info = env.step(action)
+                    if isinstance(obs, list):
+                        obs = np.array(obs, dtype=np.int32)
                     episode_reward += reward
                     steps += 1
 
@@ -249,7 +251,6 @@ class Agent:
                 all_steps.append(steps)
                 total_episodes += 1
 
-        env.render_size = original_render_size
         if args.visualize:
             cv2.destroyAllWindows()
 
