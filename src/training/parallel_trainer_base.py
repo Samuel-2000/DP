@@ -823,7 +823,7 @@ class ParallelTrainerBase:
             print(f"  Stage: {status['current_stage']}, Complexity: {status['current_complexity']:.2f}")
 
         cv2.imshow('Training Visualization', combined)
-        cv2.waitKey(0)
+        #cv2.waitKey(0)
 
     def _setup_visualization(self):
         print("\n🎮 Visualisation Controls:")

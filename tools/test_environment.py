@@ -19,7 +19,7 @@ from src.core.utils import seed_everything
 
 # Parameters
 config = {
-    'grid_size': 51,
+    'grid_size': 29,
     'max_steps': 100,
     'n_food_sources': 0,
     'food_energy': 10.0,
@@ -32,10 +32,10 @@ config = {
     'door_open_duration': 10,
     'door_close_duration': 20,
     'n_buttons_per_door': 0,
-    'button_break_probability': 0.3
+    'button_break_probability': 0.0
 }
 
-SEED = 42
+SEED = 43
 seed_everything(SEED)
 
 env = maze_core.GridMazeWorld(
@@ -58,7 +58,7 @@ env = maze_core.GridMazeWorld(
 obs, info = env.reset(seed=SEED)
 print("Environment reset with seed", SEED)
 
-frame = env.render(render_size=512)
+frame = env.render(render_size=1200)
 if frame is not None:
     output_path = Path("test_environment_screenshot.png")
     cv2.imwrite(str(output_path), frame)
