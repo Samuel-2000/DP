@@ -249,7 +249,6 @@ class ComplexityManager:
             "epochs_without_progress": self.epochs_without_progress,
             "performance_score": self.calculate_performance_score(),
             "max_rewards_by_stage": self.max_rewards_by_stage,
-            "basic_min_complexity_reached": self.stage_complexities['basic'] >= self.min_basic_complexity,
             "linear_cycle_complete": self.linear_cycle_complete,
             "stage_selection_counts": self.stage_selection_counts,
             "total_switches": self.total_switches

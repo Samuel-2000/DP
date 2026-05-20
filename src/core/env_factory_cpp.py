@@ -68,15 +68,15 @@ class EnvironmentFactoryCPP:
         # Convert None to appropriate defaults
         n_doors_val = env_config.get('n_doors')
         if n_doors_val is None:
-            n_doors_val = 0
+            n_doors_val = -1
         
         n_buttons_val = env_config.get('n_buttons_per_door')
         if n_buttons_val is None:
-            n_buttons_val = 0
+            n_buttons_val = -1
         
         break_prob_val = env_config.get('button_break_probability')
         if break_prob_val is None:
-            break_prob_val = 0.0
+            break_prob_val = -1.0
         
         return maze_core.VectorizedMazeEnv(
             num_envs=num_envs,

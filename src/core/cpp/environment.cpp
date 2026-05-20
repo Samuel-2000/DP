@@ -76,7 +76,7 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
             n_doors_ = std::max(min_doors,
                 static_cast<int>(complexity_level_ * max_doors_by_grid_));
         if (n_buttons_per_door_ <= 0) n_buttons_per_door_ = 4;
-        if (button_break_probability_ < 0)
+        if (button_break_probability_ <= 0)
             button_break_probability_ = complexity_level_ * 0.2f;
     } else if (task_class_ == "complex") {
         if (n_doors_ <= 0)
@@ -89,6 +89,8 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
 
     // NOTE: n_food_sources_ is left as passed (could be <=0).
     // Random determination now happens in reset().
+
+    precomputeSafeCells();
 }
 
 // ----------------------------------------------------------------------
@@ -127,30 +129,114 @@ int GridMazeWorld::getActualFoodSources() {
 // ----------------------------------------------------------------------
 // Obstacle placement with connectivity
 // ----------------------------------------------------------------------
+
 void GridMazeWorld::placeObstaclesWithConnectivity() {
+    // Reset grid: all empty, then boundary walls
     grid_.assign(total_cells_, static_cast<uint8_t>(TileType::EMPTY));
     for (int i = 0; i < grid_size_; ++i) {
         grid_[idx(0, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
-        grid_[idx(grid_size_-1, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        grid_[idx(grid_size_ - 1, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
         grid_[idx(i, 0)] = static_cast<uint8_t>(TileType::OBSTACLE);
-        grid_[idx(i, grid_size_-1)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        grid_[idx(i, grid_size_ - 1)] = static_cast<uint8_t>(TileType::OBSTACLE);
     }
 
+    // Use the precomputed safe cells – shuffle and pick first n_obstacles_
+    std::vector<int> shuffled = safe_cells_cache_;  // copy
+    std::shuffle(shuffled.begin(), shuffled.end(), rng_);
+    int to_remove = std::min(n_obstacles_, (int)shuffled.size());
+    for (int i = 0; i < to_remove; ++i) {
+        grid_[shuffled[i]] = static_cast<uint8_t>(TileType::OBSTACLE);
+    }
+
+    // Safety: ensure single connected component (rarely needed)
+    connectIsolatedCells();
+}
+
+
+//void GridMazeWorld::placeObstaclesWithConnectivity() {
+//    grid_.assign(total_cells_, static_cast<uint8_t>(TileType::EMPTY));
+//    for (int i = 0; i < grid_size_; ++i) {
+//        grid_[idx(0, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
+//        grid_[idx(grid_size_-1, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
+//        grid_[idx(i, 0)] = static_cast<uint8_t>(TileType::OBSTACLE);
+//        grid_[idx(i, grid_size_-1)] = static_cast<uint8_t>(TileType::OBSTACLE);
+//    }
+//
+//    std::vector<int> disc(total_cells_, -1), low(total_cells_, -1), parent(total_cells_, -1);
+//    std::vector<bool> is_articulation(total_cells_, false);
+//    int time = 0;
+//
+//    std::function<void(int)> dfs = [&](int u) {
+//        int children = 0;
+//        disc[u] = low[u] = ++time;
+//        int uy = u / grid_size_, ux = u % grid_size_;
+//        const int dy[4] = {-1, 1, 0, 0};
+//        const int dx[4] = {0, 0, -1, 1};
+//        for (int d = 0; d < 4; ++d) {
+//            int vy = uy + dy[d], vx = ux + dx[d];
+//            if (vy < 0 || vy >= grid_size_ || vx < 0 || vx >= grid_size_) continue;
+//            int v = idx(vy, vx);
+//            if (grid_[v] == static_cast<uint8_t>(TileType::OBSTACLE)) continue;
+//            if (disc[v] == -1) {
+//                parent[v] = u;
+//                ++children;
+//                dfs(v);
+//                low[u] = std::min(low[u], low[v]);
+//                if (parent[u] == -1 && children > 1) is_articulation[u] = true;
+//                if (parent[u] != -1 && low[v] >= disc[u]) is_articulation[u] = true;
+//            } else if (v != parent[u]) {
+//                low[u] = std::min(low[u], disc[v]);
+//            }
+//        }
+//    };
+//
+//    int start = idx(1, 1);
+//    dfs(start);
+//
+//    std::vector<int> safe_cells;
+//    for (int y = 1; y < grid_size_-1; ++y)
+//        for (int x = 1; x < grid_size_-1; ++x) {
+//            int cid = idx(y, x);
+//            if (!is_articulation[cid])
+//                safe_cells.push_back(cid);
+//        }
+//
+//    std::shuffle(safe_cells.begin(), safe_cells.end(), rng_);
+//    int to_remove = std::min(n_obstacles_, (int)safe_cells.size());
+//    for (int i = 0; i < to_remove; ++i) {
+//        grid_[safe_cells[i]] = static_cast<uint8_t>(TileType::OBSTACLE);
+//    }
+//
+//    connectIsolatedCells();
+//}
+
+void GridMazeWorld::precomputeSafeCells() {
+    // Create a temporary grid representing the initial empty state:
+    // outer boundary obstacles, inner cells empty.
+    std::vector<uint8_t> temp_grid(total_cells_, static_cast<uint8_t>(TileType::EMPTY));
+    for (int i = 0; i < grid_size_; ++i) {
+        temp_grid[idx(0, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        temp_grid[idx(grid_size_ - 1, i)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        temp_grid[idx(i, 0)] = static_cast<uint8_t>(TileType::OBSTACLE);
+        temp_grid[idx(i, grid_size_ - 1)] = static_cast<uint8_t>(TileType::OBSTACLE);
+    }
+
+    // Articulation point DFS on the temp grid
     std::vector<int> disc(total_cells_, -1), low(total_cells_, -1), parent(total_cells_, -1);
     std::vector<bool> is_articulation(total_cells_, false);
     int time = 0;
 
     std::function<void(int)> dfs = [&](int u) {
-        int children = 0;
         disc[u] = low[u] = ++time;
         int uy = u / grid_size_, ux = u % grid_size_;
+        int children = 0;
         const int dy[4] = {-1, 1, 0, 0};
         const int dx[4] = {0, 0, -1, 1};
         for (int d = 0; d < 4; ++d) {
             int vy = uy + dy[d], vx = ux + dx[d];
             if (vy < 0 || vy >= grid_size_ || vx < 0 || vx >= grid_size_) continue;
             int v = idx(vy, vx);
-            if (grid_[v] == static_cast<uint8_t>(TileType::OBSTACLE)) continue;
+            if (temp_grid[v] == static_cast<uint8_t>(TileType::OBSTACLE)) continue;
             if (disc[v] == -1) {
                 parent[v] = u;
                 ++children;
@@ -164,24 +250,20 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
         }
     };
 
+    // Start DFS from an inner cell (e.g., (1,1))
     int start = idx(1, 1);
-    dfs(start);
-
-    std::vector<int> safe_cells;
-    for (int y = 1; y < grid_size_-1; ++y)
-        for (int x = 1; x < grid_size_-1; ++x) {
-            int cid = idx(y, x);
-            if (!is_articulation[cid])
-                safe_cells.push_back(cid);
-        }
-
-    std::shuffle(safe_cells.begin(), safe_cells.end(), rng_);
-    int to_remove = std::min(n_obstacles_, (int)safe_cells.size());
-    for (int i = 0; i < to_remove; ++i) {
-        grid_[safe_cells[i]] = static_cast<uint8_t>(TileType::OBSTACLE);
+    if (temp_grid[start] != static_cast<uint8_t>(TileType::OBSTACLE)) {
+        dfs(start);
     }
 
-    connectIsolatedCells();
+    // Collect all inner cells that are NOT articulation points
+    safe_cells_cache_.clear();
+    for (int y = 1; y < grid_size_ - 1; ++y)
+        for (int x = 1; x < grid_size_ - 1; ++x) {
+            int cid = idx(y, x);
+            if (!is_articulation[cid])
+                safe_cells_cache_.push_back(cid);
+        }
 }
 
 // ----------------------------------------------------------------------
@@ -421,105 +503,6 @@ void GridMazeWorld::initFoodSources() {
         food_exists_cache_[i] = (food_sources_[i].exists == 1);
 }
 
-// ----------------------------------------------------------------------
-// BFS helpers (unchanged)
-// ----------------------------------------------------------------------
-void GridMazeWorld::bfsReachable(int sy, int sx, int maxdist,
-                                 const std::vector<uint8_t>& pass_mask,
-                                 std::vector<int>& dist, std::vector<int>& queue) {
-    std::fill(dist.begin(), dist.end(), -1);
-    int head = 0, tail = 0;
-    int start = idx(sy, sx);
-    if (!pass_mask[start]) return;
-    dist[start] = 0;
-    queue[tail++] = start;
-
-    while (head < tail) {
-        int cur = queue[head++];
-        int d = dist[cur];
-        if (d >= maxdist) continue;
-        int cy = cur / grid_size_, cx = cur % grid_size_;
-
-        if (cy > 0) {
-            int nid = idx(cy-1, cx);
-            if (pass_mask[nid] && dist[nid] == -1) {
-                dist[nid] = d+1;
-                queue[tail++] = nid;
-            }
-        }
-        if (cy < grid_size_-1) {
-            int nid = idx(cy+1, cx);
-            if (pass_mask[nid] && dist[nid] == -1) {
-                dist[nid] = d+1;
-                queue[tail++] = nid;
-            }
-        }
-        if (cx > 0) {
-            int nid = idx(cy, cx-1);
-            if (pass_mask[nid] && dist[nid] == -1) {
-                dist[nid] = d+1;
-                queue[tail++] = nid;
-            }
-        }
-        if (cx < grid_size_-1) {
-            int nid = idx(cy, cx+1);
-            if (pass_mask[nid] && dist[nid] == -1) {
-                dist[nid] = d+1;
-                queue[tail++] = nid;
-            }
-        }
-    }
-}
-
-void GridMazeWorld::labelConnectedComponents(const std::vector<uint8_t>& pass_mask,
-                                             std::vector<int>& labels, int& nlabels) {
-    std::fill(labels.begin(), labels.end(), 0);
-    nlabels = 0;
-    int sp = 0;
-    for (int y = 0; y < grid_size_; ++y)
-        for (int x = 0; x < grid_size_; ++x) {
-            int cid = idx(y, x);
-            if (pass_mask[cid] && labels[cid] == 0) {
-                ++nlabels;
-                int lab = nlabels;
-                sp = 0;
-                stack_buf_[sp++] = cid;
-                labels[cid] = lab;
-                while (sp > 0) {
-                    int cur = stack_buf_[--sp];
-                    int cy = cur / grid_size_, cx = cur % grid_size_;
-                    if (cy > 0) {
-                        int nid = idx(cy-1, cx);
-                        if (pass_mask[nid] && labels[nid] == 0) {
-                            labels[nid] = lab;
-                            stack_buf_[sp++] = nid;
-                        }
-                    }
-                    if (cy < grid_size_-1) {
-                        int nid = idx(cy+1, cx);
-                        if (pass_mask[nid] && labels[nid] == 0) {
-                            labels[nid] = lab;
-                            stack_buf_[sp++] = nid;
-                        }
-                    }
-                    if (cx > 0) {
-                        int nid = idx(cy, cx-1);
-                        if (pass_mask[nid] && labels[nid] == 0) {
-                            labels[nid] = lab;
-                            stack_buf_[sp++] = nid;
-                        }
-                    }
-                    if (cx < grid_size_-1) {
-                        int nid = idx(cy, cx+1);
-                        if (pass_mask[nid] && labels[nid] == 0) {
-                            labels[nid] = lab;
-                            stack_buf_[sp++] = nid;
-                        }
-                    }
-                }
-            }
-        }
-}
 
 // ----------------------------------------------------------------------
 // Final articulation point computation (unchanged)
@@ -615,125 +598,6 @@ void GridMazeWorld::computeFinalArticulationPoints() {
                 dfs_art(id);
             }
         }
-}
-
-// ----------------------------------------------------------------------
-// Place a single door with buttons (uses checkComponentsMinSize with min 3)
-// ----------------------------------------------------------------------
-bool GridMazeWorld::placeDoorWithButtons(int y, int x) {
-    if (static_grid_[idx(y,x)] != static_cast<uint8_t>(TileType::EMPTY))
-        return false;
-    
-    int comp_needed = artic_comp_count_[idx(y, x)];
-    if (comp_needed < 2) return false;
-
-    int maxdist = std::max(0, door_open_duration_ - 2);
-
-    std::vector<uint8_t> local_mask(total_cells_);
-    for (int i = 0; i < total_cells_; ++i) {
-        local_mask[i] = (static_grid_[i] != static_cast<uint8_t>(TileType::OBSTACLE)) ? 1 : 0;
-    }
-    local_mask[idx(y, x)] = 0;
-
-    const int dy[4] = {-1, 1, 0, 0};
-    const int dx[4] = {0, 0, -1, 1};
-    std::vector<int> comp_id(total_cells_, -1);
-    std::vector<int> queue;
-    queue.reserve(total_cells_);
-    int head = 0;
-
-    std::array<int, 4> seed_label = { -1, -1, -1, -1 };
-    int next_label = 0;
-
-    for (int d = 0; d < 4; ++d) {
-        int ny = y + dy[d], nx = x + dx[d];
-        if (ny >= 0 && ny < grid_size_ && nx >= 0 && nx < grid_size_) {
-            int nid = idx(ny, nx);
-            if (local_mask[nid]) {
-                comp_id[nid] = d;
-                seed_label[d] = next_label++;
-                queue.push_back(nid);
-            }
-        }
-    }
-    if (queue.empty()) return false;
-
-    while (head < (int)queue.size()) {
-        int cur = queue[head++];
-        int cur_seed = comp_id[cur];
-        int cur_label = seed_label[cur_seed];
-        int cy = cur / grid_size_, cx = cur % grid_size_;
-        int dist = std::abs(cy - y) + std::abs(cx - x);
-        if (dist >= maxdist) continue;
-
-        for (int d = 0; d < 4; ++d) {
-            int ny = cy + dy[d], nx = cx + dx[d];
-            if (ny < 0 || ny >= grid_size_ || nx < 0 || nx >= grid_size_) continue;
-            int nid = idx(ny, nx);
-            if (!local_mask[nid]) continue;
-
-            if (comp_id[nid] == -1) {
-                comp_id[nid] = cur_seed;
-                queue.push_back(nid);
-            } else {
-                int other_seed = comp_id[nid];
-                int other_label = seed_label[other_seed];
-                if (other_label != cur_label) {
-                    for (int i = 0; i < 4; ++i)
-                        if (seed_label[i] == other_label)
-                            seed_label[i] = cur_label;
-                    for (int& id : queue) {
-                        int s = comp_id[id];
-                        if (seed_label[s] == cur_label) continue;
-                        if (seed_label[s] == other_label)
-                            seed_label[s] = cur_label;
-                    }
-                }
-            }
-        }
-    }
-
-    std::set<int> distinct_labels;
-    for (int d = 0; d < 4; ++d)
-        if (seed_label[d] != -1)
-            distinct_labels.insert(seed_label[d]);
-    if ((int)distinct_labels.size() != comp_needed) return false;
-
-    if (!checkComponentsMinSize(y, x, 3)) return false;
-
-    std::map<int, std::vector<std::pair<int,int>>> comp_cells;
-    for (int cid : queue) {
-        int seed = comp_id[cid];
-        int lbl = seed_label[seed];
-        if (lbl != -1 && static_grid_[cid] == static_cast<uint8_t>(TileType::EMPTY)) {
-            comp_cells[lbl].emplace_back(cid / grid_size_, cid % grid_size_);
-        }
-    }
-
-    std::vector<std::pair<int,int>> button_positions;
-    for (int lbl : distinct_labels) {
-        auto& vec = comp_cells[lbl];
-        std::uniform_int_distribution<size_t> dist(0, vec.size() - 1);
-        button_positions.push_back(vec[dist(rng_)]);
-    }
-
-    Door d{y, x, door_open_duration_, door_close_duration_, nextDoorNumber_,
-           true, true, false, 0};
-    int doorIdx = static_cast<int>(doors_.size());
-    doors_.push_back(d);
-
-    grid_[idx(y, x)] = static_cast<uint8_t>(TileType::DOOR_CLOSED);
-    static_grid_[idx(y, x)] = static_cast<uint8_t>(TileType::DOOR_CLOSED);
-    door_open_[idx(y, x)] = 0;
-
-    for (const auto& [by, bx] : button_positions) {
-        Button btn{by, bx, doorIdx, nextDoorNumber_, button_break_probability_, false};
-        buttons_.push_back(btn);
-        grid_[idx(by, bx)] = static_cast<uint8_t>(TileType::BUTTON);
-        static_grid_[idx(by, bx)] = static_cast<uint8_t>(TileType::BUTTON);
-    }
-    ++nextDoorNumber_;
-    return true;
 }
 
 // ----------------------------------------------------------------------
@@ -997,10 +861,6 @@ void GridMazeWorld::setDoorOpen(int doorIdx, bool open) {
 // No active doors list – all doors are updated each step
 // (the step function updates all doors directly)
 
-// door update is now inlined in step; this function is no longer called
-void GridMazeWorld::updateDoorStates() {
-    // kept for compatibility but empty; actual update happens in step()
-}
 
 int GridMazeWorld::manhattanDistance(int y1, int x1, int y2, int x2) const {
     return std::abs(y1 - y2) + std::abs(x1 - x2);
@@ -1316,7 +1176,7 @@ GridMazeWorld::step(int action) {
     // ----- 6. Reward -----
     double reward = 0.01;
     if (energy_gained > 0) reward += 1.0;
-    if (action == static_cast<int>(Action::BUTTON)) reward += button_pressed ? 0.5 : -0.1;
+    if (action == static_cast<int>(Action::BUTTON)) reward += button_pressed ? 0.2 : -0.1;
     if (energy_ < 10) reward -= 0.1;
 
     StepInfo info;

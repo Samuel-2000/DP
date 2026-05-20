@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-benchmark_cpp_env_fixed.py – Performance benchmark for the C++ GridMazeWorld.
-Also benchmarks the original Python+Numba environment from src/core/obsolete.
+benchmark_cpp_env.py – Performance benchmark for the C++ GridMazeWorld.
 """
 
 import sys
@@ -19,17 +18,6 @@ ensure_cpp_module()   # This sets up OpenCV path and loads maze_core
 
 # Now import the C++ environment factory
 from src.core.env_factory_cpp import EnvironmentFactoryCPP as EnvironmentFactory
-
-# --- Try to import original Python environment from obsolete folder ---
-PYTHON_AVAILABLE = False
-PythonGridMazeWorld = None
-try:
-    # The obsolete environment lives in src/core/obsolete/environment.py
-    from src.core.obsolete.environment import GridMazeWorld as PythonGridMazeWorld
-    PYTHON_AVAILABLE = True
-    print("✓ Original Python environment (obsolete) loaded successfully")
-except ImportError as e:
-    print(f"⚠️ Original Python environment not found: {e}")
 
 
 def measure_reset(env, num_runs):
@@ -76,10 +64,10 @@ def measure_step(env, num_steps, random_actions=True):
     return mean_us, std_us, total_s
 
 
-def benchmark(env, name):
+def benchmark(env, name, steps_count):
     NUM_RESET = 640
     NUM_SOFT = 64_000
-    NUM_STEPS = 640_000
+    NUM_STEPS = NUM_RESET * steps_count
 
     print(f"\n{'='*60}")
     print(f"Benchmark: {name}")
@@ -107,7 +95,7 @@ def main():
 
     env_config = {
         "grid_size": 79,
-        "max_steps": 100,
+        "max_steps": 1000,
         "n_food_sources": 4,
         "food_energy": 10.0,
         "initial_energy": 30.0,
@@ -125,19 +113,21 @@ def main():
 
     # --- C++ environment (via factory) ---
     cpp_env = EnvironmentFactory.create_from_config(env_config, test_mode=False)
-    benchmark(cpp_env, "C++ (maze_core)")
+    print(f"{env_config['grid_size']}, {env_config['task_class']}, {env_config['complexity_level']}, {env_config['max_steps']}")
+    benchmark(cpp_env, "C++ (maze_core)", env_config['max_steps'])
 
-    # --- Original Python environment (obsolete) ---
-    #if PYTHON_AVAILABLE and PythonGridMazeWorld is not None:
-    #    py_env = PythonGridMazeWorld(**env_config)
-    #    benchmark(py_env, "Python+Numba (original / obsolete)")
-    #else:
-    #    print("\n⚠️ Skipping Python environment benchmark (not found)")
+    env_config.update({
+        "grid_size": 19,
+        "task_class": "doors",
+        "complexity_level": 0.5,
+        "max_steps": 100,
+    })
 
-    print("\n" + "="*60)
-    print("Benchmark complete.")
-    print("="*60)
 
+    cpp_env2 = EnvironmentFactory.create_from_config(env_config, test_mode=False)
+    print("\n____________________\n\n\n\n\n\n")
+    print(f"{env_config['grid_size']}, {env_config['task_class']}, {env_config['complexity_level']}, {env_config['max_steps']}")
+    benchmark(cpp_env2, "C++ (maze_core)", env_config['max_steps'])
 
 if __name__ == "__main__":
     main()

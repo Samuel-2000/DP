@@ -27,12 +27,12 @@ config = {
     'energy_decay': 0.98,
     'energy_per_step': 0.1,
     'task_class': 'complex',
-    'complexity_level': 0.5,
+    'complexity_level': 1.0,
     'n_doors': 0,
     'door_open_duration': 10,
     'door_close_duration': 20,
     'n_buttons_per_door': 0,
-    'button_break_probability': 0.0
+    'button_break_probability': 0.3
 }
 
 SEED = 42

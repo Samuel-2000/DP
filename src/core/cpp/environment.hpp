@@ -123,6 +123,8 @@ private:
     int n_obstacles_;
     int total_cells_;
 
+
+
     // Aligned vectors for SIMD
     std::vector<uint8_t, AlignedAllocator<uint8_t>> grid_;
     std::vector<uint8_t, AlignedAllocator<uint8_t>> static_grid_;
@@ -130,6 +132,9 @@ private:
     std::vector<uint8_t, AlignedAllocator<uint8_t>> door_open_;
     std::vector<uint8_t, AlignedAllocator<uint8_t>> button_broken_;
     std::vector<uint8_t, AlignedAllocator<uint8_t>> passable_mask_;
+
+    std::vector<int> safe_cells_cache_;  // computed once in constructor
+    void precomputeSafeCells();          // fills safe_cells_cache_
 
     struct FoodSource { 
         int y, x, delay, exists, count;
