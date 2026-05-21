@@ -59,8 +59,8 @@ def main():
             stage_map = {0.0: 'basic', 0.33: 'doors', 0.66: 'buttons', 1.0: 'complex'}
             metrics['task_class_history'] = [stage_map[v] for v in metrics['task_class_history']]
 
-        increase_threshold = metrics.get('increase_threshold', 0.65)
-        decrease_threshold = metrics.get('decrease_threshold', 0.4)
+        increase_threshold = metrics.get('increase_threshold', 0.60)
+        decrease_threshold = metrics.get('decrease_threshold', 0.35)
 
         # Plots go into the plots subdirectory inside the timestamp folder
         plots_dir = metrics_path.parent.parent / 'plots'

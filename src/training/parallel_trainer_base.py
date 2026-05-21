@@ -785,8 +785,8 @@ class ParallelTrainerBase:
             save_dict['obs_losses'] = self.metrics['obs_losses']
         np.savez(self.metrics_path, **save_dict)
 
-        increase_threshold = self.config['training'].get('complexity_increase_threshold', 0.65)
-        decrease_threshold = self.config['training'].get('complexity_decrease_threshold', 0.4)
+        increase_threshold = self.config['training'].get('complexity_increase_threshold', 0.6)
+        decrease_threshold = self.config['training'].get('complexity_decrease_threshold', 0.35)
         generate_plots_from_metrics(self.metrics, self.plots_dir, increase_threshold, decrease_threshold)
 
     # Fix for parallel_trainer_base.py - _visualize_current_environments method
