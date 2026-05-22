@@ -1,6 +1,6 @@
 """
 Base parallel trainer with vectorized environments, metrics, saving, dynamic complexity,
-and training plots. Extended with batched range testing centered on current training complexity.
+and training plots. Extended with deterministic and stochastic test lines.
 """
 
 import time
@@ -43,7 +43,7 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     seconds = int(total_seconds % 60)
     time_str = f"Total time: {hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    # ---- 1. Training Rewards + Test Summary Lines (min, q1, median, q3, max of per‑complexity means) ----
+    # ---- 1. Training Rewards + Test Shaded Areas + Deterministic/Stochastic Lines ----
     fig, ax = plt.subplots(figsize=(8, 5))
     rewards = np.array(metrics['train_rewards'])
     epochs = np.arange(len(rewards))
@@ -56,25 +56,49 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     test_q3 = metrics.get('test_q3', [])
     test_max = metrics.get('test_max', [])
 
-    if test_epochs and test_min:
+    # Convert to numpy arrays if they aren't already, but check length
+    if len(test_epochs) > 0 and len(test_min) > 0:
         te = np.array(test_epochs)
-        ax.plot(te, test_min, 'g-', linewidth=1, label='Min (over complexity range)')
-        ax.plot(te, test_q1, 'c-', linewidth=1, label='Q1')
-        ax.plot(te, test_median, 'm-', linewidth=1.5, label='Median')
-        ax.plot(te, test_q3, 'orange', linewidth=1, label='Q3')
-        ax.plot(te, test_max, 'r-', linewidth=1, label='Max')
+        test_min_arr = np.array(test_min)
+        test_q1_arr = np.array(test_q1)
+        test_median_arr = np.array(test_median)
+        test_q3_arr = np.array(test_q3)
+        test_max_arr = np.array(test_max)
+        
+        # Shaded area between min and max (yellow, alpha=0.2)
+        ax.fill_between(te, test_min_arr, test_max_arr, color='yellow', alpha=0.2, label='Range (min–max)')
+        # Shaded area between Q1 and Q3 (orange, alpha=0.4)
+        ax.fill_between(te, test_q1_arr, test_q3_arr, color='orange', alpha=0.4, label='IQR (Q1–Q3)')
+        # Median line (red, dashed)
+        ax.plot(te, test_median_arr, color='red', linewidth=1.5, linestyle='--', label='Median')
+        # Min and max lines (grey, dashed, thin, low alpha)
+        ax.plot(te, test_min_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
+        ax.plot(te, test_max_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
     else:
         # Fallback for non‑range mode (single test reward line)
         test_rewards = metrics.get('test_rewards', [])
-        if test_rewards and len(test_epochs) == len(test_rewards):
-            ax.plot(test_epochs, test_rewards, 'g-o', linewidth=1.5, markersize=6, label='Test Reward')
+        test_epochs_list = metrics.get('test_epochs', [])
+        if len(test_rewards) > 0 and len(test_epochs_list) == len(test_rewards):
+            ax.plot(test_epochs_list, test_rewards, 'g--', linewidth=1.5, markersize=6, label='Test Reward')
+
+    # Deterministic test line (black dashed)
+    test_det_epochs = metrics.get('test_det_epochs', [])
+    test_det_rewards = metrics.get('test_det_rewards', [])
+    if len(test_det_epochs) > 0 and len(test_det_rewards) > 0:
+        ax.plot(test_det_epochs, test_det_rewards, 'k--', linewidth=1.5, label='Test (deterministic)')
+
+    # NEW: Stochastic test line (green dashed)
+    test_stoch_epochs = metrics.get('test_stoch_epochs', [])
+    test_stoch_rewards = metrics.get('test_stoch_rewards', [])
+    if len(test_stoch_epochs) > 0 and len(test_stoch_rewards) > 0:
+        ax.plot(test_stoch_epochs, test_stoch_rewards, 'g--', linewidth=1.5, label='Test (stochastic)')
 
     best_test_reward = max(metrics.get('test_rewards', [0.0]))
     ax.set_title('Training & Test Summary')
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Reward')
     ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax.legend(loc='best')
 
     best_test_str = f"Best test reward: {best_test_reward:.2f}"
     ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
@@ -83,7 +107,7 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
             fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
     save_plot(fig, 'rewards')
 
-    # ---- 2. Training Losses (unchanged) ----
+    # ---- 2. Training Losses ----
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(metrics['train_losses'], 'r-', alpha=0.7, label='Total Loss')
     if 'policy_losses' in metrics and len(metrics['policy_losses']) > 0:
@@ -97,7 +121,7 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
             fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
     save_plot(fig, 'losses')
 
-    # ---- 3. Auxiliary Losses (unchanged) ----
+    # ---- 3. Auxiliary Losses ----
     if 'aux_losses' in metrics and len(metrics['aux_losses']) > 0:
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(metrics['aux_losses'], label='Total Aux Loss', color='purple', alpha=0.6)
@@ -115,7 +139,7 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
                 fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         save_plot(fig, 'aux_losses')
 
-    # ---- 4. Complexity & Task Class Progression (unchanged) ----
+    # ---- 4. Complexity & Task Class Progression ----
     if 'complexity_history' in metrics and len(metrics['complexity_history']) > 0:
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(metrics['complexity_history'], 'b-', linewidth=1, label='Complexity')
@@ -328,6 +352,10 @@ class ParallelTrainerBase:
             'best_reward': -np.inf,
             'total_training_time': 0.0,
             'test_task_class': self.test_task_class,
+            'test_det_epochs': [],      # deterministic test
+            'test_det_rewards': [],     # deterministic test
+            'test_stoch_epochs': [],    # NEW: stochastic test at training complexity
+            'test_stoch_rewards': [],   # NEW
         }
         self.training_start_time = None
 
@@ -577,7 +605,11 @@ class ParallelTrainerBase:
             self.metrics['total_training_time'] += elapsed
             self.training_start_time = None
 
-    def _test_valid(self, epochs: int, complexity: Optional[float] = None) -> dict:
+    def _test_valid(self, epochs: int, complexity: Optional[float] = None, deterministic: bool = False) -> dict:
+        """
+        Evaluate the agent on a fixed task class and complexity.
+        If deterministic=True, actions are argmax (greedy); otherwise stochastic sampling.
+        """
         if complexity is None:
             complexity = self.test_complexity_level
 
@@ -628,7 +660,11 @@ class ParallelTrainerBase:
             with torch.no_grad():
                 for step in range(max_steps):
                     logits = self.agent.network(obs_t).squeeze(1)
-                    actions = logits.argmax(dim=-1).cpu().numpy()
+                    if deterministic:
+                        actions = logits.argmax(dim=-1).cpu().numpy()
+                    else:
+                        probs = torch.softmax(logits, dim=-1)
+                        actions = torch.multinomial(probs, 1).squeeze(-1).cpu().numpy()
                     obs_array, r_list, terminated_list, truncated_list, _ = test_env.step(actions)
                     r = np.array(r_list, dtype=np.float32)
                     terminated = np.array(terminated_list, dtype=bool)
@@ -672,7 +708,7 @@ class ParallelTrainerBase:
 
         for comp in complexities:
             comp_rounded = round(comp, 2)
-            result = self._test_valid(epochs=4, complexity=comp_rounded)
+            result = self._test_valid(epochs=2, complexity=comp_rounded, deterministic=False)
             mean_reward = result['avg_reward']   # average over 64 parallel envs
             per_complexity_means.append(mean_reward)
             complexity_values.append(comp_rounded)
@@ -680,6 +716,7 @@ class ParallelTrainerBase:
         return complexity_values, per_complexity_means, test_min, test_max, center
 
     def _run_test(self, epoch: int):
+        # Stochastic range test (same as before)
         if self.test_use_range:
             complexities, means, test_min_c, test_max_c, center = self._test_range()
             self.metrics['test_epochs'].append(epoch)
@@ -688,20 +725,33 @@ class ParallelTrainerBase:
             self.metrics['test_median'].append(np.percentile(means, 50))
             self.metrics['test_q3'].append(np.percentile(means, 75))
             self.metrics['test_max'].append(np.max(means))
-
-            # Keep test_rewards for best reward tracking (mean of means)
             mean_of_means = np.mean(means)
             self.metrics['test_rewards'].append(mean_of_means)
             if mean_of_means > self.metrics['best_reward']:
                 self.metrics['best_reward'] = mean_of_means
                 self._save_model('best')
         else:
-            test_metrics = self._test_valid(epochs=4)
+            # Original single‑point stochastic test (kept for completeness)
+            test_metrics = self._test_valid(epochs=2, deterministic=False)
             self.metrics['test_epochs'].append(epoch)
             self.metrics['test_rewards'].append(test_metrics['avg_reward'])
             if test_metrics['avg_reward'] > self.metrics['best_reward']:
                 self.metrics['best_reward'] = test_metrics['avg_reward']
                 self._save_model('best')
+
+        # --- Deterministic test at training complexity ---
+        if self.complexity_manager is not None:
+            center = self.complexity_manager.get_current_complexity()
+        else:
+            center = self.train_complexity_level
+        det_metrics = self._test_valid(epochs=2, complexity=center, deterministic=True)
+        self.metrics['test_det_epochs'].append(epoch)
+        self.metrics['test_det_rewards'].append(det_metrics['avg_reward'])
+
+        # --- NEW: Stochastic test at training complexity ---
+        stoch_metrics = self._test_valid(epochs=2, complexity=center, deterministic=False)
+        self.metrics['test_stoch_epochs'].append(epoch)
+        self.metrics['test_stoch_rewards'].append(stoch_metrics['avg_reward'])
 
     def _save_model(self, name: str):
         agent_path = self.weights_dir / f"{name}.pt"
@@ -747,6 +797,11 @@ class ParallelTrainerBase:
         self.metrics = checkpoint['metrics']
         if 'total_training_time' not in self.metrics:
             self.metrics['total_training_time'] = 0.0
+        # Ensure new metric keys exist
+        self.metrics.setdefault('test_det_epochs', [])
+        self.metrics.setdefault('test_det_rewards', [])
+        self.metrics.setdefault('test_stoch_epochs', [])
+        self.metrics.setdefault('test_stoch_rewards', [])
         self.training_start_time = None
 
         self.optimizer.load_state_dict(checkpoint['optimizer_state'])
@@ -784,6 +839,10 @@ class ParallelTrainerBase:
             'test_epochs': self.metrics['test_epochs'],
             'test_rewards': self.metrics['test_rewards'],
             'total_training_time': self.metrics['total_training_time'],
+            'test_det_epochs': self.metrics['test_det_epochs'],
+            'test_det_rewards': self.metrics['test_det_rewards'],
+            'test_stoch_epochs': self.metrics['test_stoch_epochs'],
+            'test_stoch_rewards': self.metrics['test_stoch_rewards'],
         }
         if self.dynamic:
             stage_map = {'basic': 0.0, 'doors': 0.33, 'buttons': 0.66, 'complex': 1.0}
@@ -869,12 +928,26 @@ class ParallelTrainerBase:
                     self.metrics['best_reward'] = mean_of_means
                     self._save_model('best')
             else:
-                test_metrics = self._test_valid(epochs=4)
+                test_metrics = self._test_valid(epochs=2, deterministic=False)
                 self.metrics['test_epochs'] = [0]
                 self.metrics['test_rewards'] = [test_metrics['avg_reward']]
                 if test_metrics['avg_reward'] > self.metrics['best_reward']:
                     self.metrics['best_reward'] = test_metrics['avg_reward']
                     self._save_model('best')
+
+            # Initial deterministic test
+            if self.complexity_manager is not None:
+                center = self.complexity_manager.get_current_complexity()
+            else:
+                center = self.train_complexity_level
+            det_metrics = self._test_valid(epochs=2, complexity=center, deterministic=True)
+            self.metrics['test_det_epochs'] = [0]
+            self.metrics['test_det_rewards'] = [det_metrics['avg_reward']]
+
+            # NEW: Initial stochastic test at training complexity
+            stoch_metrics = self._test_valid(epochs=2, complexity=center, deterministic=False)
+            self.metrics['test_stoch_epochs'] = [0]
+            self.metrics['test_stoch_rewards'] = [stoch_metrics['avg_reward']]
 
     def _should_test(self, epoch: int) -> bool:
         return (epoch > 0 and epoch % self.test_interval == 0 and
@@ -902,12 +975,26 @@ class ParallelTrainerBase:
                     self.metrics['best_reward'] = mean_of_means
                     self._save_model('best')
             else:
-                test_metrics = self._test_valid(epochs=4)
+                test_metrics = self._test_valid(epochs=2, deterministic=False)
                 self.metrics['test_epochs'].append(self.epochs)
                 self.metrics['test_rewards'].append(test_metrics['avg_reward'])
                 if test_metrics['avg_reward'] > self.metrics['best_reward']:
                     self.metrics['best_reward'] = test_metrics['avg_reward']
                     self._save_model('best')
+
+            # Final deterministic test
+            if self.complexity_manager is not None:
+                center = self.complexity_manager.get_current_complexity()
+            else:
+                center = self.train_complexity_level
+            det_metrics = self._test_valid(epochs=2, complexity=center, deterministic=True)
+            self.metrics['test_det_epochs'].append(self.epochs)
+            self.metrics['test_det_rewards'].append(det_metrics['avg_reward'])
+
+            # NEW: Final stochastic test at training complexity
+            stoch_metrics = self._test_valid(epochs=2, complexity=center, deterministic=False)
+            self.metrics['test_stoch_epochs'].append(self.epochs)
+            self.metrics['test_stoch_rewards'].append(stoch_metrics['avg_reward'])
 
         self._save_model('final')
         self._save_metrics()

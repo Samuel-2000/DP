@@ -203,7 +203,7 @@ def parse_args():
         "grid_size": 11,
         "food_sources": 0,
         "test_complexity_step": 0.05,
-        "test_complexity_range": 0.1,
+        "test_complexity_range": 0.2,
     })
 
 
