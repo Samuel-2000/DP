@@ -4,6 +4,7 @@ and training plots. Extended with deterministic and stochastic test lines.
 """
 
 import time
+import json
 import numpy as np
 import torch
 import torch.optim as optim
@@ -56,7 +57,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     test_q3 = metrics.get('test_q3', [])
     test_max = metrics.get('test_max', [])
 
-    # Convert to numpy arrays if they aren't already, but check length
     if len(test_epochs) > 0 and len(test_min) > 0:
         te = np.array(test_epochs)
         test_min_arr = np.array(test_min)
@@ -65,29 +65,22 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         test_q3_arr = np.array(test_q3)
         test_max_arr = np.array(test_max)
         
-        # Shaded area between min and max (yellow, alpha=0.2)
         ax.fill_between(te, test_min_arr, test_max_arr, color='yellow', alpha=0.2, label='Range (min–max)')
-        # Shaded area between Q1 and Q3 (orange, alpha=0.4)
         ax.fill_between(te, test_q1_arr, test_q3_arr, color='orange', alpha=0.4, label='IQR (Q1–Q3)')
-        # Median line (red, dashed)
         ax.plot(te, test_median_arr, color='red', linewidth=1.5, linestyle='--', label='Median')
-        # Min and max lines (grey, dashed, thin, low alpha)
         ax.plot(te, test_min_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
         ax.plot(te, test_max_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
     else:
-        # Fallback for non‑range mode (single test reward line)
         test_rewards = metrics.get('test_rewards', [])
         test_epochs_list = metrics.get('test_epochs', [])
         if len(test_rewards) > 0 and len(test_epochs_list) == len(test_rewards):
             ax.plot(test_epochs_list, test_rewards, 'g--', linewidth=1.5, markersize=6, label='Test Reward')
 
-    # Deterministic test line (black dashed)
     test_det_epochs = metrics.get('test_det_epochs', [])
     test_det_rewards = metrics.get('test_det_rewards', [])
     if len(test_det_epochs) > 0 and len(test_det_rewards) > 0:
         ax.plot(test_det_epochs, test_det_rewards, 'k--', linewidth=1.5, label='Test (deterministic)')
 
-    # NEW: Stochastic test line (green dashed)
     test_stoch_epochs = metrics.get('test_stoch_epochs', [])
     test_stoch_rewards = metrics.get('test_stoch_rewards', [])
     if len(test_stoch_epochs) > 0 and len(test_stoch_rewards) > 0:
@@ -331,6 +324,12 @@ class ParallelTrainerBase:
 
         self.model_name = self._build_model_name()
         self._setup_experiment_dirs()
+
+        # NEW: Save full configuration to metrics directory as JSON
+        config_path = self.metrics_dir / "config.json"
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        self.logger.info(f"Saved full configuration to {config_path}")
 
         self.agent = self._create_agent()
         self.optimizer = self._create_optimizer()
@@ -791,6 +790,15 @@ class ParallelTrainerBase:
             }
         torch.save(checkpoint, str(checkpoint_path))
         self.logger.info(f"Saved checkpoint to {checkpoint_path}")
+
+        # NEW: When saving the best model, write the best test reward as a simple text file
+        if name == 'best':
+            best_reward_path = self.metrics_dir / "best_test_reward.txt"
+            with open(best_reward_path, 'w') as f:
+                f.write(str(self.metrics['best_reward']))
+            self.logger.info(f"Saved best test reward to {best_reward_path}")
+            # Note: Hyperparameters are already saved in config.json at the start of training.
+            # No need to duplicate them here.
 
     def _load_checkpoint(self, path: str):
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)

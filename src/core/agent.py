@@ -11,7 +11,6 @@ import os
 
 from src.networks.lstm import LSTMPolicyNet
 from src.networks.transformer import TransformerPolicyNet
-from src.networks.multimemory import MultiMemoryPolicyNet
 from src.core.utils import safe_load
 from src.core.constants import (
     OBSERVATION_SIZE, ACTION_SIZE, VOCAB_SIZE,
