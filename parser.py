@@ -68,6 +68,11 @@ def parse_args():
     train_parser.add_argument("--gae-lambda", type=float, default=0.95)
 
 
+    # Inside train_parser, add:
+    train_parser.add_argument("--test-complexity-step", type=float, default=None, help="Step size for complexity range (default 0.1)")
+    train_parser.add_argument("--test-complexity-range", type=float, default=None, help="Range offset for testing around current training complexity (dynamic only)")
+
+
 
 
 
@@ -150,6 +155,7 @@ def parse_args():
     if args.command == "train":
         if args.reinforce_intra_epochs > 1 and args.algorithm != "reinforce":
             raise "reinforce_intra_epochs can be used only during testing or reinforce training"
+        
 
     elif args.command == "test":
         if bool(args.play) == bool(args.model):
@@ -195,8 +201,11 @@ def parse_args():
     defaults.update({
         "max_steps": 100,
         "grid_size": 11,
-        "food_sources": 0
+        "food_sources": 0,
+        "test_complexity_step": 0.05,
+        "test_complexity_range": 0.1,
     })
+
 
     # Iterate over each argument and assign default if None
     for arg_name, default_value in defaults.items():
