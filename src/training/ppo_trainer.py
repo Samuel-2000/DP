@@ -14,6 +14,8 @@ from src.training.losses import PPOLoss, AuxiliaryLoss
 
 from src.core.constants import OBSERVATION_SIZE
 
+import torch.nn.functional as F
+
 
 class PPOTrainer(ParallelTrainerBase):
     def __init__(self, config):
@@ -177,7 +179,7 @@ class PPOTrainer(ParallelTrainerBase):
             experiences[key] = experiences[key].detach()
         if self.agent.use_auxiliary:
             experiences['energy_targets'] = experiences['energy_targets'].detach()
-            experiences['obs_targets'] = experiences['obs_targets'].detach()
+            experiences['obs_targets'] = experiences['obs_targets'].detach()   # integer tokens
 
         metrics_sum = {}
         network = self.agent.network
@@ -210,10 +212,10 @@ class PPOTrainer(ParallelTrainerBase):
                         )
                         if self.agent.use_auxiliary:
                             energy_pred = outputs[1]
-                            obs_pred = outputs[2]
+                            obs_pred_logits = outputs[2]   # <-- now logits
                             aux_loss = self.aux_loss_fn(
                                 energy_pred, batch['energy_targets'],
-                                obs_pred, batch['obs_targets'].float(),
+                                obs_pred_logits, batch['obs_targets'],   # integer targets
                                 batch['mask']
                             )
                             loss = loss + aux_loss
@@ -221,13 +223,18 @@ class PPOTrainer(ParallelTrainerBase):
                             # Compute component losses for logging
                             with torch.no_grad():
                                 energy_loss = torch.nn.functional.mse_loss(energy_pred.squeeze(-1), batch['energy_targets'])
-                                obs_loss = torch.nn.functional.mse_loss(obs_pred, batch['obs_targets'].float())
+                                # Cross‑entropy for observation
+                                B, T, obs_size, vocab_size = obs_pred_logits.shape
+                                obs_ce = F.cross_entropy(
+                                    obs_pred_logits.view(-1, vocab_size),
+                                    batch['obs_targets'].view(-1).long()
+                                )
                                 if batch['mask'] is not None:
                                     valid_ratio = batch['mask'].sum() / (batch['mask'].numel() + 1e-8)
                                     energy_loss = energy_loss * valid_ratio
-                                    obs_loss = obs_loss * valid_ratio
+                                    obs_ce = obs_ce * valid_ratio
                                 metrics['energy_loss'] = energy_loss.item()
-                                metrics['obs_loss'] = obs_loss.item()
+                                metrics['obs_loss'] = obs_ce.item()
                 else:
                     outputs = network(
                         batch['observations'],
@@ -242,23 +249,27 @@ class PPOTrainer(ParallelTrainerBase):
                     )
                     if self.agent.use_auxiliary:
                         energy_pred = outputs[1]
-                        obs_pred = outputs[2]
+                        obs_pred_logits = outputs[2]
                         aux_loss = self.aux_loss_fn(
                             energy_pred, batch['energy_targets'],
-                            obs_pred, batch['obs_targets'].float(),
+                            obs_pred_logits, batch['obs_targets'],
                             batch['mask']
                         )
                         loss = loss + aux_loss
                         metrics['aux_loss'] = aux_loss.item()
                         with torch.no_grad():
                             energy_loss = torch.nn.functional.mse_loss(energy_pred.squeeze(-1), batch['energy_targets'])
-                            obs_loss = torch.nn.functional.mse_loss(obs_pred, batch['obs_targets'].float())
+                            B, T, obs_size, vocab_size = obs_pred_logits.shape
+                            obs_ce = F.cross_entropy(
+                                obs_pred_logits.view(-1, vocab_size),
+                                batch['obs_targets'].view(-1).long()
+                            )
                             if batch['mask'] is not None:
                                 valid_ratio = batch['mask'].sum() / (batch['mask'].numel() + 1e-8)
                                 energy_loss = energy_loss * valid_ratio
-                                obs_loss = obs_loss * valid_ratio
+                                obs_ce = obs_ce * valid_ratio
                             metrics['energy_loss'] = energy_loss.item()
-                            metrics['obs_loss'] = obs_loss.item()
+                            metrics['obs_loss'] = obs_ce.item()
 
                 optimizer.zero_grad(set_to_none=True)
                 if use_amp:
@@ -285,6 +296,7 @@ class PPOTrainer(ParallelTrainerBase):
                     metrics_sum[k] = metrics_sum.get(k, 0) + v / self.ppo_intra_epochs / (total_envs / self.mini_batch_size)
 
         return metrics_sum
+
 
     def train(self):
         """Main training loop."""

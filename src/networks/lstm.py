@@ -114,11 +114,12 @@ class LSTMPolicyNet(BaseNetwork):  # Inherit from BaseNetwork
                 nn.ReLU(),
                 nn.Linear(hidden_size // 2, 1)
             )
-            # Predicts the next observation (10 tokens, treated as regression with MSE). This forces the hidden state to encode environment dynamics.
+            # NEW: Predicts logits for each of the 10 observation tokens (cross-entropy)
+            # Output size = observation_size * vocab_size, then reshaped to [B,T,10,19]
             self.observation_head = nn.Sequential(
                 nn.Linear(hidden_size, hidden_size),
                 nn.ReLU(),
-                nn.Linear(hidden_size, observation_size)
+                nn.Linear(hidden_size, observation_size * vocab_size)
             )
 
         # Value head (for PPO) – created in BaseNetwork if use_value_head=True
@@ -149,9 +150,9 @@ class LSTMPolicyNet(BaseNetwork):  # Inherit from BaseNetwork
         Returns
         -------
         - If neither auxiliary nor value: logits [B, T, A]
-        - If only auxiliary: (logits, energy_pred, obs_pred)
+        - If only auxiliary: (logits, energy_pred, obs_pred_logits)
         - If only value: (logits, value)
-        - If both: (logits, energy_pred, obs_pred, value)
+        - If both: (logits, energy_pred, obs_pred_logits, value)
         """
         B, T, K = x.shape
 
@@ -188,13 +189,15 @@ class LSTMPolicyNet(BaseNetwork):  # Inherit from BaseNetwork
         # Policy logits
         logits = self.head(out)  # [B, T, A]
 
-        # Build output tuple (order: logits, [energy, obs], [value])
+        # Build output tuple (order: logits, [energy, obs_logits], [value])
         outputs = [logits]
 
         if return_auxiliary and self.use_auxiliary:
-            energy_pred = self.energy_head(out)
-            obs_pred = self.observation_head(out)
-            outputs.extend([energy_pred, obs_pred])
+            energy_pred = self.energy_head(out)                       # [B, T, 1]
+            obs_pred_logits = self.observation_head(out)              # [B, T, obs_size * vocab]
+            # Reshape to [B, T, obs_size, vocab_size] for cross-entropy
+            obs_pred_logits = obs_pred_logits.view(B, T, self.observation_size, -1)
+            outputs.extend([energy_pred, obs_pred_logits])
 
         if return_value and self.use_value_head:
             value = self.value_head(out)

@@ -76,11 +76,12 @@ class PolicyLoss:
         total_loss = policy_loss + entropy_loss
         return total_loss, entropy
 
+
 class AuxiliaryLoss:
     """
     Auxiliary losses for self-supervised learning:
       - Energy prediction (MSE)
-      - Observation prediction (MSE on the 10-token vector)
+      - Observation prediction (cross‑entropy over tokens)
     """
 
     def __init__(self, energy_coef: float = 0.1, obs_coef: float = 0.05):
@@ -88,23 +89,32 @@ class AuxiliaryLoss:
         self.obs_coef = obs_coef
 
     def __call__(self, energy_pred: torch.Tensor, energy_target: torch.Tensor,
-                 obs_pred: torch.Tensor, obs_target: torch.Tensor,
+                 obs_pred_logits: torch.Tensor, obs_target: torch.Tensor,
                  mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Args:
             energy_pred: [B, T, 1] predicted energy (continuous)
             energy_target: [B, T] true energy
-            obs_pred: [B, T, obs_dim] predicted observation tokens (treated as floats)
-            obs_target: [B, T, obs_dim] true observation tokens (as ints, cast to float)
+            obs_pred_logits: [B, T, obs_size, vocab_size] logits for each token position
+            obs_target: [B, T, obs_size] true observation tokens (integer IDs)
             mask: [B, T] mask for valid steps
         """
+        # Energy MSE (unchanged)
         energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
-        obs_loss = F.mse_loss(obs_pred, obs_target.float())
+
+        # Observation cross‑entropy
+        B, T, obs_size, vocab_size = obs_pred_logits.shape
+        ce_loss = F.cross_entropy(
+            obs_pred_logits.view(-1, vocab_size),   # [B*T*obs_size, vocab]
+            obs_target.view(-1).long()              # [B*T*obs_size]
+        )
+
         if mask is not None:
             valid_ratio = mask.sum() / (mask.numel() + 1e-8)
             energy_loss = energy_loss * valid_ratio
-            obs_loss = obs_loss * valid_ratio
-        return self.energy_coef * energy_loss + self.obs_coef * obs_loss
+            ce_loss = ce_loss * valid_ratio
+
+        return self.energy_coef * energy_loss + self.obs_coef * ce_loss
 
 
 class PPOLoss:

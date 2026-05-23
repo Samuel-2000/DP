@@ -12,7 +12,7 @@ import random
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F  # ADDED
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from .parallel_trainer_base import ParallelTrainerBase
@@ -231,15 +231,12 @@ class ReinforceTrainer(ParallelTrainerBase):
         reward_scalar = rewards.sum(dim=1).mean()
 
         if self.aux_loss_fn and self.agent.use_auxiliary:
-            out = self.agent.network(
-                obs,
-                return_auxiliary=True,
-            )
+            out = self.agent.network(obs, return_auxiliary=True)
 
             if not isinstance(out, tuple) or len(out) != 3:
                 raise ValueError("Network did not return auxiliary outputs")
 
-            logits, energy_pred, obs_pred = out
+            logits, energy_pred, obs_pred_logits = out   # <-- renamed from obs_pred
 
             # Compute policy loss WITHOUT entropy for logging
             # Use unnormalized advantages for logging to avoid zero values
@@ -261,24 +258,27 @@ class ReinforceTrainer(ParallelTrainerBase):
             )
 
             energy_target = experiences["energy_targets"]
-            obs_target = experiences["next_obs_targets"]
+            obs_target = experiences["next_obs_targets"]   # integer tokens, not float
 
-            aux_loss = self.aux_loss_fn(
-                energy_pred,
-                energy_target,
-                obs_pred,
-                obs_target.float(),
-                mask,
-            )
+            # NEW: pass obs_pred_logits (logits) and obs_target (int)
+            aux_loss = self.aux_loss_fn(energy_pred, energy_target,
+                                        obs_pred_logits, obs_target, mask)
 
             # Extract component losses for logging
             with torch.no_grad():
                 energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
-                obs_loss = F.mse_loss(obs_pred, obs_target.float())
+                # Cross‑entropy loss is already logged as aux_loss's obs part,
+                # but we can still compute it separately for logging if desired.
+                # Here we compute it again for consistency.
+                B, T, obs_size, vocab_size = obs_pred_logits.shape
+                obs_ce_loss = F.cross_entropy(
+                    obs_pred_logits.view(-1, vocab_size),
+                    obs_target.view(-1).long()
+                )
                 if mask is not None:
                     valid_ratio = mask.sum() / (mask.numel() + 1e-8)
                     energy_loss = energy_loss * valid_ratio
-                    obs_loss = obs_loss * valid_ratio
+                    obs_ce_loss = obs_ce_loss * valid_ratio
 
             total_loss = policy_loss_with_entropy + aux_loss
 
@@ -288,7 +288,7 @@ class ReinforceTrainer(ParallelTrainerBase):
                 "policy_loss": self._scalar(policy_loss_only.detach()),
                 "aux_loss": self._scalar(aux_loss.detach()),
                 "energy_loss": self._scalar(energy_loss.detach()),
-                "obs_loss": self._scalar(obs_loss.detach()),
+                "obs_loss": self._scalar(obs_ce_loss.detach()),   # now cross‑entropy value
             }
 
         else:
@@ -320,7 +320,6 @@ class ReinforceTrainer(ParallelTrainerBase):
             }
 
         return total_loss, metrics
-
 
     def _train_step(self, experiences):
         """

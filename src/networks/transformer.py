@@ -2,6 +2,7 @@
 """
 Transformer-based policy network with positional encoding, causal masking,
 recurrent memory tokens, and optional value head.
+Now uses cross‑entropy for observation prediction.
 """
 
 import torch
@@ -152,12 +153,13 @@ class TransformerPolicyNet(BaseNetwork):
                 nn.GELU(),
                 nn.Linear(hidden_size // 4, 1)
             )
-            # Predicts the next observation (10 tokens, treated as regression)
+            # NEW: Predicts logits for each observation token (cross-entropy)
+            # Output size = observation_size * vocab_size, reshaped to [B,T,10,19]
             self.observation_head = nn.Sequential(
                 nn.LayerNorm(embed_dim),
                 nn.Linear(embed_dim, hidden_size // 2),
                 nn.GELU(),
-                nn.Linear(hidden_size // 2, observation_size)
+                nn.Linear(hidden_size // 2, observation_size * vocab_size)
             )
 
         # Value head (for PPO) – created in BaseNetwork if use_value_head=True
@@ -190,9 +192,9 @@ class TransformerPolicyNet(BaseNetwork):
         Returns
         -------
         - If neither auxiliary nor value: logits [B, T, A]
-        - If only auxiliary: (logits, energy_pred, obs_pred)
+        - If only auxiliary: (logits, energy_pred, obs_pred_logits)
         - If only value: (logits, value)
-        - If both: (logits, energy_pred, obs_pred, value)
+        - If both: (logits, energy_pred, obs_pred_logits, value)
         """
         B, T, K = x.shape
 
@@ -250,13 +252,15 @@ class TransformerPolicyNet(BaseNetwork):
         # Step 8: Policy logits
         logits = self.policy_head(obs_out)                 # [B, T, A]
 
-        # Build output tuple (order: logits, [energy, obs], [value])
+        # Build output tuple (order: logits, [energy, obs_logits], [value])
         outputs = [logits]
 
         if return_auxiliary and self.use_auxiliary:
-            energy_pred = self.energy_head(obs_out)
-            obs_pred = self.observation_head(obs_out)
-            outputs.extend([energy_pred, obs_pred])
+            energy_pred = self.energy_head(obs_out)        # [B, T, 1]
+            obs_pred_logits = self.observation_head(obs_out)  # [B, T, obs_size * vocab]
+            # Reshape to [B, T, obs_size, vocab_size] for cross-entropy
+            obs_pred_logits = obs_pred_logits.view(B, T, self.observation_size, -1)
+            outputs.extend([energy_pred, obs_pred_logits])
 
         if return_value and self.use_value_head:
             value = self.value_head(obs_out)

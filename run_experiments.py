@@ -33,7 +33,6 @@ DEFAULT_HYPERPARAMS = {
     "hidden_size": 512,
     "task_class": "basic",
     "complexity_level": 0.5,
-    "test_task_class": "basic",
     "grid_size": 11,
     "max_steps": 100,
     "dynamic_complexity": False,
@@ -103,7 +102,6 @@ def update_global_best_from_experiment(exp_dir: Path):
         "hidden_size": model.get('hidden_size', 512),
         "task_class": env.get('task_class', 'basic'),
         "complexity_level": env.get('complexity_level', 0.5),
-        "test_task_class": training.get('test_task_class', 'basic'),
         "grid_size": env.get('grid_size', 11),
         "max_steps": env.get('max_steps', 100),
         "dynamic_complexity": training.get('dynamic_complexity', False),
@@ -132,7 +130,6 @@ def build_command(hyperparams: dict, experiment_name: str, epochs_override: int 
     if not hyperparams.get("dynamic_complexity", False):
         cmd.extend(["--task-class", hyperparams["task_class"]])
         cmd.extend(["--complexity-level", str(hyperparams["complexity_level"])])
-    cmd.extend(["--test-task-class", hyperparams["test_task_class"]])
     cmd.extend(["--algorithm", hyperparams["algorithm"]])
     if hyperparams["algorithm"] == "ppo":
         cmd.extend(["--ppo-intra-epochs", str(hyperparams["ppo_intra_epochs"])])
