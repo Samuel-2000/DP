@@ -399,16 +399,20 @@ class ParallelTrainerBase:
     def _setup_experiment_dirs(self):
         exp_cfg = self.config['experiment']
         network_type = self.config['model']['type']
+        hidden_size = self.config['model']['hidden_size']
         use_aux = self.config['model']['use_auxiliary']
         algorithm = self.config['training']['algorithm']
         optimizer = self.config['training']['optimizer']
         aux_str = 'with_aux' if use_aux else 'no_aux'
 
+        # Append hidden size to the network type directory name
+        network_type_dir = f"{network_type}_hs{hidden_size}"
+
         prefix = exp_cfg.get('prefix')
         if prefix:
-            base_dir = Path(exp_cfg['save_dir']) / prefix / network_type / algorithm / optimizer / aux_str / self.model_name
+            base_dir = Path(exp_cfg['save_dir']) / prefix / network_type_dir / algorithm / optimizer / aux_str / self.model_name
         else:
-            base_dir = Path(exp_cfg['save_dir']) / network_type / algorithm / optimizer / aux_str / self.model_name
+            base_dir = Path(exp_cfg['save_dir']) / network_type_dir / algorithm / optimizer / aux_str / self.model_name
 
         date_subfolder = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.experiment_dir = base_dir / date_subfolder
