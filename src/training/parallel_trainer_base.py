@@ -70,11 +70,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         ax.plot(te, test_median_arr, color='red', linewidth=1.5, linestyle='--', label='Median')
         ax.plot(te, test_min_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
         ax.plot(te, test_max_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
-    else:
-        test_rewards = metrics.get('test_rewards', [])
-        test_epochs_list = metrics.get('test_epochs', [])
-        if len(test_rewards) > 0 and len(test_epochs_list) == len(test_rewards):
-            ax.plot(test_epochs_list, test_rewards, 'g--', linewidth=1.5, markersize=6, label='Test Reward')
 
     test_det_epochs = metrics.get('test_det_epochs', [])
     test_det_rewards = metrics.get('test_det_rewards', [])
@@ -86,14 +81,15 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     if len(test_stoch_epochs) > 0 and len(test_stoch_rewards) > 0:
         ax.plot(test_stoch_epochs, test_stoch_rewards, 'g--', linewidth=1.5, label='Test (stochastic)')
 
-    best_test_reward = max(metrics.get('test_rewards', [0.0]))
+    # Use median for best test reward (now the primary metric)
+    best_test_reward = max(metrics.get('test_median', [0.0]))
     ax.set_title('Training & Test Summary')
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Reward')
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best')
 
-    best_test_str = f"Best test reward: {best_test_reward:.2f}"
+    best_test_str = f"Best test reward (median): {best_test_reward:.2f}"
     ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
             fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
     ax.text(0.98, 0.92, best_test_str, transform=ax.transAxes, ha='right', va='top',
@@ -337,13 +333,12 @@ class ParallelTrainerBase:
         )
         self.gradient_clipper = GradientClipper(max_norm=training_cfg['max_grad_norm'])
 
-        # Metrics dictionary (full set)
+        # Metrics dictionary (full set) – removed test_rewards
         self.metrics = {
             'train_rewards': [],
             'train_losses': [],
             'policy_losses': [],
             'test_epochs': [],
-            'test_rewards': [],
             'best_reward': -np.inf,
             'total_training_time': 0.0,
             'test_det_epochs': [],      # deterministic test at training complexity
@@ -725,10 +720,11 @@ class ParallelTrainerBase:
         self.metrics['test_median'].append(np.percentile(means, 50))
         self.metrics['test_q3'].append(np.percentile(means, 75))
         self.metrics['test_max'].append(np.max(means))
-        mean_of_means = np.mean(means)
-        self.metrics['test_rewards'].append(mean_of_means)
-        if mean_of_means > self.metrics['best_reward']:
-            self.metrics['best_reward'] = mean_of_means
+
+        # Use median for best model selection (no test_rewards stored anymore)
+        median_of_means = self.metrics['test_median'][-1]
+        if median_of_means > self.metrics['best_reward']:
+            self.metrics['best_reward'] = median_of_means
             self._save_model('best')
 
         # ---- Deterministic test at current training complexity ----
@@ -790,6 +786,8 @@ class ParallelTrainerBase:
     def _load_checkpoint(self, path: str):
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.metrics = checkpoint['metrics']
+        # Ensure backward compatibility: remove test_rewards if present (no longer used)
+        self.metrics.pop('test_rewards', None)
         if 'total_training_time' not in self.metrics:
             self.metrics['total_training_time'] = 0.0
         # Ensure new metric keys exist
@@ -832,7 +830,6 @@ class ParallelTrainerBase:
             'train_rewards': self.metrics['train_rewards'],
             'train_losses': self.metrics['train_losses'],
             'test_epochs': self.metrics['test_epochs'],
-            'test_rewards': self.metrics['test_rewards'],
             'total_training_time': self.metrics['total_training_time'],
             'test_det_epochs': self.metrics['test_det_epochs'],
             'test_det_rewards': self.metrics['test_det_rewards'],
@@ -922,10 +919,10 @@ class ParallelTrainerBase:
             self.metrics['test_median'] = [np.percentile(means, 50)]
             self.metrics['test_q3'] = [np.percentile(means, 75)]
             self.metrics['test_max'] = [np.max(means)]
-            mean_of_means = np.mean(means)
-            self.metrics['test_rewards'] = [mean_of_means]
-            if mean_of_means > self.metrics['best_reward']:
-                self.metrics['best_reward'] = mean_of_means
+
+            median_of_means = self.metrics['test_median'][-1]
+            if median_of_means > self.metrics['best_reward']:
+                self.metrics['best_reward'] = median_of_means
                 self._save_model('best')
 
             # Deterministic test at training complexity
@@ -964,10 +961,10 @@ class ParallelTrainerBase:
             self.metrics['test_median'].append(np.percentile(means, 50))
             self.metrics['test_q3'].append(np.percentile(means, 75))
             self.metrics['test_max'].append(np.max(means))
-            mean_of_means = np.mean(means)
-            self.metrics['test_rewards'].append(mean_of_means)
-            if mean_of_means > self.metrics['best_reward']:
-                self.metrics['best_reward'] = mean_of_means
+
+            median_of_means = self.metrics['test_median'][-1]
+            if median_of_means > self.metrics['best_reward']:
+                self.metrics['best_reward'] = median_of_means
                 self._save_model('best')
 
             # Deterministic test
