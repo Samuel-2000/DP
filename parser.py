@@ -12,27 +12,30 @@ def parse_args():
             # Train without dynamic complexity (static environment)
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class doors --complexity-level 0.7 [--n-doors 5]
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class buttons [--n-doors 5 --n-buttons-per-door 4 --button-break-probability 0.0]
-            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --task-class complex --complexity-level 1.0 --reinforce-intra-epochs 4 --update-per-episode
+
+            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --auxiliary-tasks --task-class complex --complexity-level 1.0 --algorithm ppo --ppo-intra-epochs 2 --mini-batch-size 64 --grid-size 19 --max-steps 200
+            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --task-class complex --complexity-level 1.0 --algorithm reinforce --reinforce-intra-epochs 4 --update-per-episode
+
             
-            
-            # Test a model statically
-            python run.py test --model experiments/lstm_best.pt --epochs 10 [--visualize] --task-class doors --complexity-level 0.7 [--n-doors 5]
+            # Test a model
+            python run.py test --model experiments/lstm_example_best.pt --epochs 10 [--visualize --show-trail --fog-of-war --save-video] --task-class doors --complexity-level 0.7 [--n-doors 5]
 
             # dynamic complexity test across stages and complexities
             python run.py test --model experiments/lstm_best.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
             run.py test --model /experiments/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
 
             # Human play mode
-            python run.py test --play --epochs 4 --task-class complex --complexity-level 0.5
+            python run.py test --play --epochs 4 --task-class complex --complexity-level 0.5 --grid-size 19 --max-steps 200
             python run.py test --play --epochs 1 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
-            python run.py test --play --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons
+            python run.py test --play --epochs 1 --dynamic-complexity --stages basic doors buttons
 
             # Plot saved metrics
             python run.py plot --metrics-path ./experiments/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30
+            python tools/replot_experiments.py
 
-            # Resume training
-            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume ./experiments/lstm/ppo/no_aux/64b_0.0005lr_gs11_pie1_mb64/2026-05-08_23-23-46/weights/final_checkpoint.pt
-            python run.py train --network-type lstm --epochs 500 --batch-size 64 --lr 0.0002 --dynamic-complexity --curriculum-stages basic --test-task-class basic --test-complexity-level 1.0 --algorithm ppo --ppo-intra-epochs 2 --mini-batch-size 64 --grid-size 19 --max-steps 200 --experiment-name grid_size_experiment --resume ./experiments/grid_size_experiment/lstm/ppo/adam/no_aux/64b_0.0002lr_gs19_pie2_mb64/2026-05-17_20-37-53/weights/final_checkpoint.pt  
+
+            # Resume training (load saved checkpoint)
+            python run.py train --network-type lstm --hidden-size 512 --batch-size 64 --lr 0.0006 --algorithm ppo --ppo-intra-epochs 1 --mini-batch-size 64 --grid-size 19 --max-steps 200 --task-class complex --complexity-level 0.5 --auxiliary-tasks --epochs 10000 --experiment-name bigger_grid_size_experiment --resume ./experiments/bigger_grid_size_experiment/lstm_hs512/ppo/adam/with_aux/64b_0.0006lr_gs19_pie1_mb64/2026-05-26_22-25-41/weights/epoch_003000_checkpoint.pt
 
         """
     )
@@ -40,12 +43,11 @@ def parse_args():
 
     # ---------- train command ----------
     train_parser = subparsers.add_parser("train", help="Train a model")
-    train_parser.add_argument("--network-type", required=True, choices=["lstm", "transformer", "multimemory"])
+    train_parser.add_argument("--network-type", required=True, choices=["lstm", "transformer"])
     train_parser.add_argument("--hidden-size", type=int, default=None)
     train_parser.add_argument("--batch-size", required=True, type=int)
     train_parser.add_argument("--lr", required=True, type=float)
     train_parser.add_argument("--optimizer", type=str, default=None)
-    train_parser.add_argument("--weight-decay", type=float, default=None)
 
     train_parser.add_argument("--auxiliary-tasks", action="store_true", default=False)
 

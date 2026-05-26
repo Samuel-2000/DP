@@ -4,7 +4,7 @@ Base classes for neural networks – extended with optional value head and auxil
 
 import torch
 import torch.nn as nn
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any
 import abc
 from src.core.utils import safe_load
 

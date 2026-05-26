@@ -7,7 +7,6 @@ import torch.nn.functional as F
 import numpy as np
 from typing import Dict, Any
 import cv2
-import os
 
 from src.networks.lstm import LSTMPolicyNet
 from src.networks.transformer import TransformerPolicyNet
@@ -62,19 +61,6 @@ class Agent:
                 memory_size=10,
                 use_auxiliary=use_auxiliary,
                 use_value_head=use_value_head
-            )
-        elif network_type == 'multimemory':
-            self.network = MultiMemoryPolicyNet(
-                vocab_size=VOCAB_SIZE,
-                embed_dim=hidden_size,
-                observation_size=observation_size,
-                hidden_size=hidden_size,
-                action_size=action_size,
-                transformer_heads=8,
-                transformer_layers=3,
-                cache_size=50,
-                use_auxiliary=use_auxiliary
-                # Note: MultiMemoryPolicyNet does not support use_value_head currently
             )
         else:
             raise ValueError(f"Unknown network type: {network_type}")

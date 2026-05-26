@@ -108,7 +108,6 @@ def main():
                 "batch_size": args.batch_size,
                 "learning_rate": args.lr,
                 "optimizer": args.optimizer,
-                "weight_decay": args.weight_decay,
                 "gamma": DEFAULT_GAMMA,
                 "entropy_coef": DEFAULT_ENTROPY_COEF,
                 "max_grad_norm": DEFAULT_MAX_GRAD_NORM,

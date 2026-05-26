@@ -260,7 +260,7 @@ class ReinforceTrainer(ParallelTrainerBase):
             energy_target = experiences["energy_targets"]
             obs_target = experiences["next_obs_targets"]   # integer tokens, not float
 
-            # NEW: pass obs_pred_logits (logits) and obs_target (int)
+            # pass obs_pred_logits (logits) and obs_target (int)
             aux_loss = self.aux_loss_fn(energy_pred, energy_target,
                                         obs_pred_logits, obs_target, mask)
 

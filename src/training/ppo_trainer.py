@@ -8,7 +8,6 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import time
-import cv2
 from .parallel_trainer_base import ParallelTrainerBase
 from src.training.losses import PPOLoss, AuxiliaryLoss
 

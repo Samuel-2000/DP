@@ -1,7 +1,6 @@
 from setuptools import setup, Extension
 import pybind11
 import os
-import sys
 import platform
 import glob
 

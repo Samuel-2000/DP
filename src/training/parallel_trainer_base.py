@@ -11,10 +11,9 @@ import torch.optim as optim
 from pathlib import Path
 from datetime import datetime
 from collections import deque
-from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Tuple
 import maze_core
 
 from src.core.agent import Agent
@@ -307,7 +306,7 @@ class ParallelTrainerBase:
         self.model_name = self._build_model_name()
         self._setup_experiment_dirs()
 
-        # NEW: Save full configuration to metrics directory as JSON
+        # Save full configuration to metrics directory as JSON
         config_path = self.metrics_dir / "config.json"
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
@@ -426,8 +425,7 @@ class ParallelTrainerBase:
         return OptimizerFactory.create(
             optimizer_name=train_cfg['optimizer'],
             parameters=self.agent.network.parameters(),
-            lr=train_cfg['learning_rate'],
-            weight_decay=train_cfg['weight_decay'],
+            lr=train_cfg['learning_rate']
         )
 
     def _create_vectorized_env(self):

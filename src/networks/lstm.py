@@ -114,7 +114,7 @@ class LSTMPolicyNet(BaseNetwork):  # Inherit from BaseNetwork
                 nn.ReLU(),
                 nn.Linear(hidden_size // 2, 1)
             )
-            # NEW: Predicts logits for each of the 10 observation tokens (cross-entropy)
+            # Predicts logits for each of the 10 observation tokens (cross-entropy)
             # Output size = observation_size * vocab_size, then reshaped to [B,T,10,19]
             self.observation_head = nn.Sequential(
                 nn.Linear(hidden_size, hidden_size),

@@ -7,11 +7,14 @@ __pycache__/
 
 others/
 
-!*final_checkpoint.pt
+*.pt
 !*best.pt
 
 
+*.txt
+!*commands_log.txt
 
+*.json
 *.pyd
 *.obj
 *.exp

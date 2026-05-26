@@ -164,10 +164,7 @@ class OptimizerFactory:
     """Factory for creating optimizers"""
     
     @staticmethod
-    def create(optimizer_name: str,
-               parameters,
-               lr: float = 0.001,
-               **kwargs) -> optim.Optimizer:
+    def create(optimizer_name: str, parameters, lr: float) -> optim.Optimizer:
         """
         Create optimizer
         
@@ -183,41 +180,16 @@ class OptimizerFactory:
         optimizer_name = optimizer_name.lower()
         
         if optimizer_name == 'adam':
-            return optim.Adam(
-                parameters,
-                lr=lr,
-                #betas=kwargs.get('betas', (0.9, 0.999)),
-                #eps=kwargs.get('eps', 1e-8),
-                #weight_decay=kwargs.get('weight_decay', 0.0)
-            )
+            return optim.Adam(parameters, lr=lr)
         
         elif optimizer_name == 'adamw':
-            return optim.AdamW(
-                parameters,
-                lr=lr,
-                #betas=kwargs.get('betas', (0.9, 0.999)),
-                #eps=kwargs.get('eps', 1e-8),
-                #weight_decay=kwargs.get('weight_decay', 0.01)
-            )
+            return optim.AdamW(parameters, lr=lr)
         
         elif optimizer_name == 'sgd':
-            return optim.SGD(
-                parameters,
-                lr=lr,
-                #momentum=kwargs.get('momentum', 0.9),
-                #weight_decay=kwargs.get('weight_decay', 0.0),
-                #nesterov=kwargs.get('nesterov', False)
-            )
+            return optim.SGD(parameters, lr=lr)
         
         elif optimizer_name == 'rmsprop':
-            return optim.RMSprop(
-                parameters,
-                lr=lr,
-                #alpha=kwargs.get('alpha', 0.99),
-                #eps=kwargs.get('eps', 1e-8),
-                #weight_decay=kwargs.get('weight_decay', 0.0),
-                #momentum=kwargs.get('momentum', 0.0)
-            )
+            return optim.RMSprop(parameters, lr=lr)
         
         else:
             raise ValueError(f"Unknown optimizer: {optimizer_name}")

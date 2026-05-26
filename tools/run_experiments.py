@@ -9,7 +9,6 @@ import sys
 import os
 import json
 from pathlib import Path
-from datetime import datetime
 import argparse
 
 script_dir = Path(__file__).parent.parent

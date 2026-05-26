@@ -6,7 +6,6 @@ Human-controlled agent for playable mode
 import cv2
 import numpy as np
 from typing import Dict, Any
-import sys
 
 from src.core.constants import Actions
 from src.visualization.visualizer import Visualizer

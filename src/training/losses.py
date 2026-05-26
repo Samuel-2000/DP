@@ -4,7 +4,7 @@ Loss functions for RL training – REINFORCE, auxiliary, and PPO.
 
 import torch
 import torch.nn.functional as F
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Optional
 
 
 """
@@ -99,7 +99,7 @@ class AuxiliaryLoss:
             obs_target: [B, T, obs_size] true observation tokens (integer IDs)
             mask: [B, T] mask for valid steps
         """
-        # Energy MSE (unchanged)
+        # Energy MSE
         energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
 
         # Observation cross‑entropy

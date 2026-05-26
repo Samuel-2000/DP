@@ -153,7 +153,7 @@ class TransformerPolicyNet(BaseNetwork):
                 nn.GELU(),
                 nn.Linear(hidden_size // 4, 1)
             )
-            # NEW: Predicts logits for each observation token (cross-entropy)
+            # Predicts logits for each observation token (cross-entropy)
             # Output size = observation_size * vocab_size, reshaped to [B,T,10,19]
             self.observation_head = nn.Sequential(
                 nn.LayerNorm(embed_dim),
