@@ -29,10 +29,9 @@ from src.core.cpp_build import ensure_cpp_module
 def main():
     ensure_cpp_module()
     args = parse_args()
-    Path("models").mkdir(exist_ok=True)
+    Path("experiments").mkdir(exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
     Path("results").mkdir(exist_ok=True)
-    Path("results/plots").mkdir(parents=True, exist_ok=True)
     Path("results/videos").mkdir(parents=True, exist_ok=True)
 
 

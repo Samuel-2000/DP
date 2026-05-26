@@ -87,7 +87,7 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Reward')
     ax.grid(True, alpha=0.3)
-    ax.legend(loc='best')
+    #ax.legend(loc='best')
 
     best_test_str = f"Best test reward (median): {best_test_reward:.2f}"
     ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
@@ -106,8 +106,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     ax.set_ylabel('Loss')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
-            fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
     save_plot(fig, 'losses')
 
     # ---- 3. Auxiliary Losses ----
@@ -117,15 +115,13 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         if 'energy_losses' in metrics and len(metrics['energy_losses']) > 0:
             ax.plot(metrics['energy_losses'], label='Energy MSE', color='orange', alpha=0.6)
         if 'obs_losses' in metrics and len(metrics['obs_losses']) > 0:
-            ax.plot(metrics['obs_losses'], label='Obs MSE', color='green', alpha=0.6)
+            ax.plot(metrics['obs_losses'], label='Obs Cross Entropy', color='green', alpha=0.6)
         ax.set_title('Auxiliary Losses')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Loss')
         ax.set_yscale('log')
         ax.legend()
         ax.grid(True, alpha=0.3)
-        ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
-                fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         save_plot(fig, 'aux_losses')
 
     # ---- 4. Complexity & Task Class Progression ----
@@ -201,11 +197,9 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
             ax.set_ylabel('Score')
             ax.set_ylim(0, 1.1)
             ax.grid(True, alpha=0.3)
-            ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
-                    fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
             save_plot(fig, 'performance_scores')
 
-    # ---- 6. Complexity vs Reward (raw) ----
+    # ---- 6. Reward vs Complexity (raw) ----
     if 'complexity_history' in metrics and len(metrics['train_rewards']) > 10:
         fig, ax = plt.subplots(figsize=(8, 5))
         complexities = np.array(metrics['complexity_history'])
@@ -217,15 +211,13 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         plt.colorbar(sc, ax=ax, label='Epoch')
         if min_len > 1:
             corr = np.corrcoef(complexities, rewards_raw)[0, 1]
-            ax.set_title(f'Complexity vs Reward (raw, corr: {corr:.3f})')
+            ax.set_title(f'Reward vs Complexity (raw, corr: {corr:.3f})')
         else:
-            ax.set_title('Complexity vs Reward (raw)')
+            ax.set_title('Reward vs Complexity (raw)')
         ax.set_xlabel('Complexity Level')
         ax.set_ylabel('Reward')
         ax.grid(True, alpha=0.3)
-        ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
-                fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
-        save_plot(fig, 'complexity_vs_reward')
+        save_plot(fig, 'reward_vs_complexity')
 
     # ---- 7. Reward vs Complexity per stage ----
     if 'task_class_history' in metrics and len(metrics['task_class_history']) > 0:
@@ -266,8 +258,6 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
             ax.set_ylabel('Reward')
             ax.grid(True, alpha=0.3)
             ax.legend()
-            ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
-                    fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
             save_plot(fig, f'reward_vs_complexity_stage_{stage}')
 
 

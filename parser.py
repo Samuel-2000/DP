@@ -16,11 +16,11 @@ def parse_args():
             
             
             # Test a model statically
-            python run.py test --model models/lstm_best.pt --epochs 10 [--visualize] --task-class doors --complexity-level 0.7 [--n-doors 5]
+            python run.py test --model experiments/lstm_best.pt --epochs 10 [--visualize] --task-class doors --complexity-level 0.7 [--n-doors 5]
 
             # dynamic complexity test across stages and complexities
-            python run.py test --model models/lstm_best.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
-            run.py test --model /models/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
+            python run.py test --model experiments/lstm_best.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
+            run.py test --model /experiments/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
 
             # Human play mode
             python run.py test --play --epochs 4 --task-class complex --complexity-level 0.5
@@ -28,11 +28,11 @@ def parse_args():
             python run.py test --play --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons
 
             # Plot saved metrics
-            python run.py plot --metrics-path ./models/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30
+            python run.py plot --metrics-path ./experiments/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30
 
             # Resume training
-            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume ./models/lstm/ppo/no_aux/64b_0.0005lr_gs11_pie1_mb64/2026-05-08_23-23-46/weights/final_checkpoint.pt
-            python run.py train --network-type lstm --epochs 500 --batch-size 64 --lr 0.0002 --dynamic-complexity --curriculum-stages basic --test-task-class basic --test-complexity-level 1.0 --algorithm ppo --ppo-intra-epochs 2 --mini-batch-size 64 --grid-size 19 --max-steps 200 --experiment-name grid_size_experiment --resume ./models/grid_size_experiment/lstm/ppo/adam/no_aux/64b_0.0002lr_gs19_pie2_mb64/2026-05-17_20-37-53/weights/final_checkpoint.pt  
+            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --resume ./experiments/lstm/ppo/no_aux/64b_0.0005lr_gs11_pie1_mb64/2026-05-08_23-23-46/weights/final_checkpoint.pt
+            python run.py train --network-type lstm --epochs 500 --batch-size 64 --lr 0.0002 --dynamic-complexity --curriculum-stages basic --test-task-class basic --test-complexity-level 1.0 --algorithm ppo --ppo-intra-epochs 2 --mini-batch-size 64 --grid-size 19 --max-steps 200 --experiment-name grid_size_experiment --resume ./experiments/grid_size_experiment/lstm/ppo/adam/no_aux/64b_0.0002lr_gs19_pie2_mb64/2026-05-17_20-37-53/weights/final_checkpoint.pt  
 
         """
     )
@@ -51,7 +51,7 @@ def parse_args():
 
     train_parser.add_argument("--update-per-episode", action="store_true", default=False, help="Update after each episode. Use --no-update-per-episode to update once per epoch.")
 
-    train_parser.add_argument("--save-dir", type=str, default="models", help="Directory to save models")
+    train_parser.add_argument("--save-dir", type=str, default="experiments", help="Directory to save experiments")
     train_parser.add_argument("--experiment-name", type=str, default=None, help="Optional experiment name")
     train_parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint file (.pt) to resume training")
 

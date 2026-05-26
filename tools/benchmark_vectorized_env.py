@@ -120,7 +120,7 @@ def measure_sequential_baseline(env_config, num_envs, num_resets, num_soft, num_
 def main():
     # Configuration – same as original benchmark
     env_config = {
-        "grid_size": 79,
+        "grid_size": 19,
         "max_steps": 100,
         "n_food_sources": 4,
         "food_energy": 10.0,
@@ -138,7 +138,7 @@ def main():
     }
 
     BATCH_SIZE = 64
-    NUM_RESET = 10      # total number of reset calls on the vectorized env
+    NUM_RESET = 100      # total number of reset calls on the vectorized env
     NUM_SOFT = 1000
     NUM_STEPS = 10000
 

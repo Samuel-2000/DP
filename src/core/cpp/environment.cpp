@@ -1288,10 +1288,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
     std::stringstream info_ss, doors_ss;
     info_ss << std::fixed << std::setprecision(1);
     info_ss << "Energy: " << energy_ << " | Step: " << steps_ << "/" << max_steps_;
-    info_ss << " | Task: " << task_class_ << " (Lvl: " << complexity_level_ << ")";
-    doors_ss << "Doors: " << doors_.size() << " | Buttons: " << buttons_.size();
-    cv::putText(img, info_ss.str(), cv::Point(10,15), cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(255,255,255), 1);
-    cv::putText(img, doors_ss.str(), cv::Point(10,35), cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(255,255,255), 1);
+    cv::putText(img, info_ss.str(), cv::Point(10,15), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,150), 1);
 
     std::vector<size_t> shape = { static_cast<size_t>(img_h), static_cast<size_t>(img_w), 3 };
     py::array_t<uint8_t> result(shape);

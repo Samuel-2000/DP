@@ -18,9 +18,12 @@ os.chdir(script_dir)
 
 PYTHON = sys.executable
 
-GLOBAL_BEST_FILE = Path("models/global_best_config.json")
-COMPLETED_FILE = Path("models/completed_experiments.json")
-COMMANDS_LOG_FILE = Path("models/commands_log.txt")
+GLOBAL_BEST_FILE = Path("experiments/global_best_config.json")
+COMPLETED_FILE = Path("experiments/completed_experiments.json")
+COMMANDS_LOG_FILE = Path("experiments/commands_log.txt")
+
+# Total number of environment steps for batch size experiments (batch_size * epochs = 320k)
+TOTAL_STEPS = 320_000
 
 DEFAULT_HYPERPARAMS = {
     "algorithm": "ppo",
@@ -65,7 +68,7 @@ def save_global_best(hyperparams: dict):
         json.dump(hyperparams, f, indent=2)
 
 def find_most_recent_experiment_dir(experiment_name: str) -> Path:
-    base = Path("models") / experiment_name
+    base = Path("experiments") / experiment_name
     if not base.exists():
         raise FileNotFoundError(f"Experiment base directory not found: {base}")
     candidates = []
@@ -120,7 +123,7 @@ def update_global_best_from_experiment(exp_dir: Path):
         print(f"  Reward {reward:.3f} <= current best {current_best_reward:.3f}, no update.")
         return reward
 
-def build_command(hyperparams: dict, experiment_name: str, epochs_override: int = None) -> list:
+def build_command(hyperparams: dict, experiment_name: str, epochs_override: int = None, resume_from: str = None) -> list:
     cmd = [PYTHON, "run.py", "train"]
     cmd.extend(["--network-type", hyperparams["network_type"]])
     cmd.extend(["--hidden-size", str(hyperparams["hidden_size"])])
@@ -149,6 +152,8 @@ def build_command(hyperparams: dict, experiment_name: str, epochs_override: int 
         cmd.extend(["--epochs", str(epochs_override)])
     else:
         cmd.extend(["--epochs", "5000"])
+    if resume_from is not None:
+        cmd.extend(["--resume", resume_from])
     cmd.extend(["--experiment-name", experiment_name])
     return cmd
 
@@ -190,6 +195,69 @@ def run_experiment(cmd, exp_id: str, experiment_name: str, dry_run: bool = False
     except FileNotFoundError as e:
         print(f"  Warning: Could not locate experiment directory: {e}")
         return False
+
+def run_incremental_complexity(base_params: dict, experiment_name: str, dry_run: bool) -> bool:
+    """
+    Run a sequence of training sessions:
+    Start at complexity 0.0 for 500 epochs, then each step increase by 0.05,
+    resume from the previous checkpoint, and train another 500 epochs.
+    """
+    exp_id = "bigger_grid_grid19_inc_comp"
+    if exp_id in load_completed_experiments():
+        print(f"  Skipping already completed: {exp_id}")
+        return True
+
+    start_complexity = 0.0
+    end_complexity = 1.0
+    step = 0.05
+    epochs_per_step = 500
+    total_steps = int((end_complexity - start_complexity) / step) + 1  # 21 steps from 0.0 to 1.0 inclusive
+    print(f"  Running incremental complexity from {start_complexity} to {end_complexity} in steps of {step} (total {total_steps} runs)")
+
+    prev_checkpoint = None
+    for i in range(total_steps):
+        complexity = start_complexity + i * step
+        params = base_params.copy()
+        params["complexity_level"] = complexity
+        params["dynamic_complexity"] = False
+        # Override grid size and max steps
+        params["grid_size"] = 19
+        params["max_steps"] = 200
+        # Build command with resume if not first run
+        cmd = build_command(params, experiment_name, epochs_override=epochs_per_step, resume_from=prev_checkpoint)
+        print(f"  Step {i+1}/{total_steps}: complexity={complexity:.2f}, epochs={epochs_per_step}")
+        if not dry_run:
+            # Run the command
+            cmd_log = [PYTHON, "run.py", "train"] + cmd[cmd.index("run.py")+2:]  # Remove the initial PYTHON for logging? Actually build_command returns full list.
+            # But we have the full cmd already. We'll just run it.
+            try:
+                subprocess.run(cmd, check=True)
+                # Find the checkpoint from this run to resume next time
+                exp_dir = find_most_recent_experiment_dir(experiment_name)
+                # The checkpoint is usually in weights/ subdirectory with a name like "final_checkpoint.pt" or "best_checkpoint.pt"
+                # We need the most recent checkpoint file. Let's use "best_checkpoint.pt" as it is saved at each best.
+                checkpoint_path = exp_dir / "weights" / "best_checkpoint.pt"
+                if checkpoint_path.exists():
+                    prev_checkpoint = str(checkpoint_path)
+                else:
+                    # Fallback: use final_checkpoint.pt
+                    checkpoint_path = exp_dir / "weights" / "final_checkpoint.pt"
+                    if checkpoint_path.exists():
+                        prev_checkpoint = str(checkpoint_path)
+                    else:
+                        print(f"  Warning: No checkpoint found after step {i+1}")
+                        return False
+            except subprocess.CalledProcessError as e:
+                print(f"  Step {i+1} failed: {e}")
+                return False
+        else:
+            # Dry run: just log the command
+            log_command(cmd)
+
+    # After all steps, mark as completed
+    if not dry_run:
+        save_completed_experiment(exp_id)
+    return True
 
 def run_experiment_1(experiment_name: str, dry_run: bool) -> bool:
     print("\n>>> Experiment 1: REINFORCE vs PPO")
@@ -241,8 +309,8 @@ def main():
         ("ppo_intra_epochs", [2, 4], "PPO intra-epochs test", None),
         ("mini_batch_size", [1600, 256, 64], "Mini-batch size test", None),
         ("batch_size", [(32, 10000), (128, 2500)], "Batch size test", "per_value"),
-        ("optimizer", ["adamw", "sgd", "rmsprop"], "Optimizer comparison", 2500),
-        ("lr", [0.001, 0.0001, 0.0002, 0.0003, 0.0004], "Learning rate test", 2500),
+        ("optimizer", ["adamw", "sgd", "rmsprop"], "Optimizer comparison", "adaptive_epochs"),
+        ("lr", [0.001, 0.0001, 0.0002, 0.0003, 0.0004, 0.0006, 0.0007, 0.0008, 0.0009], "Learning rate test", "adaptive_epochs"),
     ]
 
     for exp_key, values, description, epochs_info in simple_experiments:
@@ -266,23 +334,24 @@ def main():
                     continue
                 params = base_hyperparams.copy()
                 params[exp_key] = val
-                epochs_ov = epochs_info if epochs_info != "per_value" else None
-                cmd = build_command(params, f"{exp_key}_experiment", epochs_override=epochs_ov)
+                if epochs_info == "adaptive_epochs":
+                    batch_size = params["batch_size"]
+                    epochs_override = TOTAL_STEPS // batch_size
+                else:
+                    epochs_override = epochs_info if epochs_info != "per_value" else None
+                cmd = build_command(params, f"{exp_key}_experiment", epochs_override=epochs_override)
                 run_experiment(cmd, exp_id, f"{exp_key}_experiment", args.dry_run)
 
     print("\n>>> Bigger grid size experiment")
     base = load_global_best()
     base["grid_size"] = 19
     base["max_steps"] = 200
-    base["batch_size"] = 64
-    base["lr"] = 0.0002
-    base["ppo_intra_epochs"] = 2
-    base["mini_batch_size"] = 64
+
+    # Standard variants (non‑incremental)
     variants = [
-        {"dynamic": False, "complexity": 0.5, "epochs": 2500, "aux": False, "desc": "grid19_cl05"},
-        {"dynamic": False, "complexity": 1.0, "epochs": 2500, "aux": False, "desc": "grid19_cl10"},
-        {"dynamic": True,  "complexity": 0.5, "epochs": 5000, "aux": False, "desc": "grid19_dyn"},
-        {"dynamic": True,  "complexity": 0.5, "epochs": 20000, "aux": True, "desc": "grid19_dyn_aux"},
+        {"dynamic": False, "complexity": 1.0, "epochs": 10000, "aux": False, "desc": "grid19_cl10"},
+        {"dynamic": True,  "complexity": 1.0, "epochs": 10000, "aux": False, "desc": "grid19_dyn"},
+        {"dynamic": True,  "complexity": 1.0, "epochs": 10000, "aux": True, "desc": "grid19_dyn_aux"},
     ]
     for v in variants:
         exp_id = f"bigger_grid_{v['desc']}"
@@ -299,6 +368,10 @@ def main():
         cmd = build_command(params, "bigger_grid_size_experiment", epochs_override=v["epochs"])
         run_experiment(cmd, exp_id, "bigger_grid_size_experiment", args.dry_run)
 
+    # Incremental complexity variant (manual resume)
+    print("\n>>> Running incremental complexity variant (0.0 → 1.0 in 0.05 steps every 500 epochs)")
+    run_incremental_complexity(base, "bigger_grid_size_experiment", args.dry_run)
+
     print("\n>>> Networks experiment")
     base = load_global_best()
     base["grid_size"] = 19
@@ -306,10 +379,6 @@ def main():
     base["dynamic_complexity"] = True
     base["curriculum_stages"] = ["basic"]
     base["use_auxiliary"] = True
-    base["batch_size"] = 64
-    base["lr"] = 0.0002
-    base["ppo_intra_epochs"] = 2
-    base["mini_batch_size"] = 64
     exp_id = "network_transformer"
     if not args.force_rerun and exp_id in load_completed_experiments():
         print(f"  Skipping already completed: {exp_id}")

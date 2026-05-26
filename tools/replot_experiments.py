@@ -32,15 +32,15 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent.resolve()
-    models_dir = project_root / "models"
+    experiments_dir = project_root / "experiments"
 
-    if not models_dir.exists():
-        print(f"❌ Models directory not found: {models_dir}")
+    if not experiments_dir.exists():
+        print(f"❌ experiments directory not found: {experiments_dir}")
         return 1
 
-    metrics_dirs = find_metrics_dirs(models_dir)
+    metrics_dirs = find_metrics_dirs(experiments_dir)
     if not metrics_dirs:
-        print("⚠️  No metrics.npz files found in models/.")
+        print("⚠️  No metrics.npz files found in experiments/.")
         return 0
 
     print(f"Found {len(metrics_dirs)} experiment(s) with metrics.")
