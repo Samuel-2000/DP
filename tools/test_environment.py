@@ -6,7 +6,9 @@ render it, and save a screenshot using the C++ module.
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # First, ensure C++ module is built and available
 from src.core.cpp_build import ensure_cpp_module

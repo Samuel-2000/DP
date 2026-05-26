@@ -7,7 +7,9 @@ No title, vertical row labels perfectly centred on the image rows.
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.cpp_build import ensure_cpp_module
 ensure_cpp_module()

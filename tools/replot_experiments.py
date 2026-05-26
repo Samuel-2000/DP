@@ -9,7 +9,7 @@ import subprocess
 import os
 from pathlib import Path
 
-# Add project root to path (optional)
+# Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def find_metrics_dirs(root_dir: Path) -> list[Path]:

@@ -9,8 +9,8 @@ import numpy as np
 import argparse
 from pathlib import Path
 
-# --- Add project root to sys.path (same as run.py) ---
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # --- Ensure C++ module and OpenCV DLLs are set up ---
 from src.core.cpp_build import ensure_cpp_module

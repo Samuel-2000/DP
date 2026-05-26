@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 run_experiments.py - Adaptive hyperparameter search with resume.
-Uses recursive scan to locate experiment directories (robust against naming changes).
-Logs all commands to commands_log.txt (plain commands, no timestamps).
+Now includes hardcoded final experiments (no incremental complexity).
 """
 
 import subprocess
@@ -13,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 import argparse
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
+script_dir = Path(__file__).parent.parent
 os.chdir(script_dir)
 
 PYTHON = sys.executable
@@ -129,7 +128,6 @@ def build_command(hyperparams: dict, experiment_name: str, epochs_override: int 
     cmd.extend(["--hidden-size", str(hyperparams["hidden_size"])])
     cmd.extend(["--batch-size", str(hyperparams["batch_size"])])
     cmd.extend(["--lr", str(hyperparams["lr"])])
-    # Only add task_class and complexity_level if NOT dynamic complexity
     if not hyperparams.get("dynamic_complexity", False):
         cmd.extend(["--task-class", hyperparams["task_class"]])
         cmd.extend(["--complexity-level", str(hyperparams["complexity_level"])])
@@ -166,7 +164,6 @@ def log_command(command: list):
         f.write(' '.join(log_cmd) + '\n')
 
 def run_experiment(cmd, exp_id: str, experiment_name: str, dry_run: bool = False) -> bool:
-    # Check if already completed
     if exp_id in load_completed_experiments():
         print(f"  Skipping already completed: {exp_id}")
         return True
@@ -196,69 +193,6 @@ def run_experiment(cmd, exp_id: str, experiment_name: str, dry_run: bool = False
         print(f"  Warning: Could not locate experiment directory: {e}")
         return False
 
-def run_incremental_complexity(base_params: dict, experiment_name: str, dry_run: bool) -> bool:
-    """
-    Run a sequence of training sessions:
-    Start at complexity 0.0 for 500 epochs, then each step increase by 0.05,
-    resume from the previous checkpoint, and train another 500 epochs.
-    """
-    exp_id = "bigger_grid_grid19_inc_comp"
-    if exp_id in load_completed_experiments():
-        print(f"  Skipping already completed: {exp_id}")
-        return True
-
-    start_complexity = 0.0
-    end_complexity = 1.0
-    step = 0.05
-    epochs_per_step = 500
-    total_steps = int((end_complexity - start_complexity) / step) + 1  # 21 steps from 0.0 to 1.0 inclusive
-    print(f"  Running incremental complexity from {start_complexity} to {end_complexity} in steps of {step} (total {total_steps} runs)")
-
-    prev_checkpoint = None
-    for i in range(total_steps):
-        complexity = start_complexity + i * step
-        params = base_params.copy()
-        params["complexity_level"] = complexity
-        params["dynamic_complexity"] = False
-        # Override grid size and max steps
-        params["grid_size"] = 19
-        params["max_steps"] = 200
-        # Build command with resume if not first run
-        cmd = build_command(params, experiment_name, epochs_override=epochs_per_step, resume_from=prev_checkpoint)
-        print(f"  Step {i+1}/{total_steps}: complexity={complexity:.2f}, epochs={epochs_per_step}")
-        if not dry_run:
-            # Run the command
-            cmd_log = [PYTHON, "run.py", "train"] + cmd[cmd.index("run.py")+2:]  # Remove the initial PYTHON for logging? Actually build_command returns full list.
-            # But we have the full cmd already. We'll just run it.
-            try:
-                subprocess.run(cmd, check=True)
-                # Find the checkpoint from this run to resume next time
-                exp_dir = find_most_recent_experiment_dir(experiment_name)
-                # The checkpoint is usually in weights/ subdirectory with a name like "final_checkpoint.pt" or "best_checkpoint.pt"
-                # We need the most recent checkpoint file. Let's use "best_checkpoint.pt" as it is saved at each best.
-                checkpoint_path = exp_dir / "weights" / "best_checkpoint.pt"
-                if checkpoint_path.exists():
-                    prev_checkpoint = str(checkpoint_path)
-                else:
-                    # Fallback: use final_checkpoint.pt
-                    checkpoint_path = exp_dir / "weights" / "final_checkpoint.pt"
-                    if checkpoint_path.exists():
-                        prev_checkpoint = str(checkpoint_path)
-                    else:
-                        print(f"  Warning: No checkpoint found after step {i+1}")
-                        return False
-            except subprocess.CalledProcessError as e:
-                print(f"  Step {i+1} failed: {e}")
-                return False
-        else:
-            # Dry run: just log the command
-            log_command(cmd)
-
-    # After all steps, mark as completed
-    if not dry_run:
-        save_completed_experiment(exp_id)
-    return True
-
 def run_experiment_1(experiment_name: str, dry_run: bool) -> bool:
     print("\n>>> Experiment 1: REINFORCE vs PPO")
     params = DEFAULT_HYPERPARAMS.copy()
@@ -279,6 +213,72 @@ def run_experiment_1(experiment_name: str, dry_run: bool) -> bool:
         return best_algorithm == "ppo"
     else:
         return True
+
+def run_hardcoded_experiments(dry_run: bool):
+    """
+    Hardcoded final experiments.
+    Each tuple: (args_list, exp_id, experiment_name)
+    """
+    hardcoded = [
+        # 1. bigger_grid_size_experiment (no aux)
+        (["--network-type", "lstm", "--hidden-size", "512", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "basic", "--epochs", "10000"],
+         "bigger_grid_no_aux", "bigger_grid_size_experiment"),
+        # 2. bigger_grid_size_experiment (with aux)
+        (["--network-type", "lstm", "--hidden-size", "512", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "basic", "--auxiliary-tasks", "--epochs", "10000"],
+         "bigger_grid_aux", "bigger_grid_size_experiment"),
+        # 3. networks_experiment (transformer, lr=0.0006)
+        (["--network-type", "transformer", "--hidden-size", "512", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "basic", "--auxiliary-tasks", "--epochs", "20000"],
+         "network_transformer_lr6e4", "networks_experiment"),
+        # 4. networks_experiment (transformer, lr=0.0001)
+        (["--network-type", "transformer", "--hidden-size", "512", "--batch-size", "64", "--lr", "0.0001",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "basic", "--auxiliary-tasks", "--epochs", "20000"],
+         "network_transformer_lr1e4", "networks_experiment"),
+        # 5. networks_experiment (lstm, hidden-size 768)
+        (["--network-type", "lstm", "--hidden-size", "768", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "basic", "--auxiliary-tasks", "--epochs", "20000"],
+         "network_lstm_hs768", "networks_experiment"),
+        # 6. curriculum_experiment (doors)
+        (["--network-type", "lstm", "--hidden-size", "768", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "doors", "--auxiliary-tasks", "--epochs", "20000"],
+         "curriculum_doors", "curriculum_experiment"),
+        # 7. curriculum_experiment (buttons)
+        (["--network-type", "lstm", "--hidden-size", "768", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "buttons", "--auxiliary-tasks", "--epochs", "20000"],
+         "curriculum_buttons", "curriculum_experiment"),
+        # 8. curriculum_experiment (full: basic doors buttons complex)
+        (["--network-type", "lstm", "--hidden-size", "768", "--batch-size", "64", "--lr", "0.0006",
+          "--algorithm", "ppo", "--ppo-intra-epochs", "1", "--mini-batch-size", "64",
+          "--grid-size", "19", "--max-steps", "200", "--dynamic-complexity",
+          "--curriculum-stages", "basic", "doors", "buttons", "complex", "--auxiliary-tasks",
+          "--epochs", "20000"],
+         "curriculum_full", "curriculum_experiment"),
+    ]
+
+    print("\n>>> Running hardcoded final experiments")
+    for args_list, exp_id, exp_name in hardcoded:
+        if exp_id in load_completed_experiments():
+            print(f"  Skipping already completed: {exp_id}")
+            continue
+        cmd = [PYTHON, "run.py", "train"] + args_list + ["--experiment-name", exp_name]
+        run_experiment(cmd, exp_id, exp_name, dry_run)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -301,6 +301,7 @@ def main():
 
     if not ppo_wins:
         print("\nREINFORCE won. Skipping all remaining experiments (PPO-specific).")
+        # Still run the hardcoded ones? They are all PPO-based, so skip as well.
         return
 
     print("\nPPO won. Proceeding with all experiments...")
@@ -347,7 +348,6 @@ def main():
     base["grid_size"] = 19
     base["max_steps"] = 200
 
-    # Standard variants (non‑incremental)
     variants = [
         {"dynamic": False, "complexity": 1.0, "epochs": 10000, "aux": False, "desc": "grid19_cl10"},
         {"dynamic": True,  "complexity": 1.0, "epochs": 10000, "aux": False, "desc": "grid19_dyn"},
@@ -368,11 +368,10 @@ def main():
         cmd = build_command(params, "bigger_grid_size_experiment", epochs_override=v["epochs"])
         run_experiment(cmd, exp_id, "bigger_grid_size_experiment", args.dry_run)
 
-    # Incremental complexity variant (manual resume)
-    print("\n>>> Running incremental complexity variant (0.0 → 1.0 in 0.05 steps every 500 epochs)")
-    run_incremental_complexity(base, "bigger_grid_size_experiment", args.dry_run)
+    # The incremental complexity run is removed entirely
 
-    print("\n>>> Networks experiment")
+    # Networks experiment (adaptive part – may duplicate later hardcoded but we keep it for completeness)
+    print("\n>>> Networks experiment (adaptive, based on global best)")
     base = load_global_best()
     base["grid_size"] = 19
     base["max_steps"] = 200
@@ -386,6 +385,7 @@ def main():
         params = base.copy()
         params["network_type"] = "transformer"
         params["hidden_size"] = 512
+        params["lr"] = 0.0006  # override from best? best might have different lr, but we force
         cmd = build_command(params, "networks_experiment", epochs_override=20000)
         run_experiment(cmd, exp_id, "networks_experiment", args.dry_run)
 
@@ -396,8 +396,12 @@ def main():
         params = base.copy()
         params["network_type"] = "lstm"
         params["hidden_size"] = 768
+        params["lr"] = 0.0006
         cmd = build_command(params, "networks_experiment", epochs_override=20000)
         run_experiment(cmd, exp_id, "networks_experiment", args.dry_run)
+
+    # Finally, run the hardcoded experiments (these include the ones listed above plus curriculum variants)
+    run_hardcoded_experiments(args.dry_run)
 
     print("\n" + "=" * 50)
     print("All experiments processed.")
