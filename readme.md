@@ -50,7 +50,6 @@ we need opencv for c++ if not already installed.
 on linux:
 ```bash
 apt-get install -y libopencv-dev
-
 ```
 on windows download, extract and put into %PATH%: https://sourceforge.net/projects/opencvlibrary/
 
