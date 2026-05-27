@@ -119,6 +119,11 @@ class BaseAgent:
         paused = False
         pomdp_overview = False
 
+        # Framerate limiting only when visualisation is enabled
+        if args.visualize:
+            target_frame_time = 1.0 / 20.0
+            last_frame_time = time.perf_counter()
+
         for epoch in range(args.epochs):
             if early_stop:
                 break
@@ -147,15 +152,11 @@ class BaseAgent:
                 steps = 0
                 terminated = truncated = False
 
-                target_frame_time = 1.0 / 20.0
-                last_frame_time = time.perf_counter()
-
                 while not (terminated or truncated) and steps < env.max_steps:
                     if paused:
                         frame = viz.render(steps, show_text=not pomdp_overview)
                         if args.visualize and frame is not None:
                             if pomdp_overview:
-                                # Use the visualizer's live agent_view state
                                 frame = self._apply_pomdp_overview(frame, env, obs, viz.agent_view)
                             cv2.imshow('Test', frame)
                         key = cv2.waitKey(50) & 0xFF
@@ -213,11 +214,13 @@ class BaseAgent:
                                 early_stop = True
                                 break
 
-                    now = time.perf_counter()
-                    elapsed = now - last_frame_time
-                    if elapsed < target_frame_time:
-                        time.sleep(target_frame_time - elapsed)
-                    last_frame_time = time.perf_counter()
+                    # Framerate limiting only when visualisation is enabled
+                    if args.visualize:
+                        now = time.perf_counter()
+                        elapsed = now - last_frame_time
+                        if elapsed < target_frame_time:
+                            time.sleep(target_frame_time - elapsed)
+                        last_frame_time = time.perf_counter()
 
                 viz.finalize()
 
