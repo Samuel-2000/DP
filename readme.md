@@ -119,5 +119,7 @@ Review source code to better understand implementation details.
 
 ### 7. Compare Results
 
-After experiments complete, compare outputs with results reported in the thesis.
+After experiments are complete, compare outputs with results reported in the thesis.
+The exact values may vary due to differences in GPU hardware, as CUDA network training operations are stochastic. Therefore, even when the environment is generated deterministically using the same seed, different systems may produce slightly different results. However, the overall trends and behaviors should remain consistent across machines. Repeated runs on the same machine should, however, produce identical results.
+
 ```
