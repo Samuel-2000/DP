@@ -56,6 +56,11 @@ struct AlignedAllocator {
         free(p);
 #endif
     }
+
+    template <typename U>
+    bool operator==(const AlignedAllocator<U, Alignment>&) const { return true; }
+    template <typename U>
+    bool operator!=(const AlignedAllocator<U, Alignment>&) const { return false; }
 };
 
 struct StepInfo {
