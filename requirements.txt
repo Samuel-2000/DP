@@ -3,5 +3,5 @@ numpy
 matplotlib>=3.7.0
 tqdm>=4.65.0
 pybind11>=2.10.0
-imageio
+imageio[ffmpeg]
 opencv-python
