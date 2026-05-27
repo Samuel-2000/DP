@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-benchmark_vectorized_env.py – Performance of VectorizedMazeEnv with batch size 64.
+benchmark_vectorized_env.py - Performance of VectorizedMazeEnv with batch size 64.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import sys
@@ -71,7 +73,7 @@ def measure_vectorized_step(env_vec, num_steps, batch_size):
 def measure_sequential_baseline(env_config, num_envs, num_resets, num_soft, num_steps):
     """
     Create num_envs single environments and run them sequentially.
-    Returns per‑operation times (total time / num_envs) for fair comparison.
+    Returns per-operation times (total time / num_envs) for fair comparison.
     """
     envs = [EnvironmentFactory.create_from_config(env_config) for _ in range(num_envs)]
 
@@ -119,7 +121,7 @@ def measure_sequential_baseline(env_config, num_envs, num_resets, num_soft, num_
 
 
 def main():
-    # Configuration – same as original benchmark
+    # Configuration - same as original benchmark
     env_config = {
         "grid_size": 19,
         "max_steps": 100,

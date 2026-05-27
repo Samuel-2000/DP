@@ -1,5 +1,8 @@
+# src/training/optimizers.py
 """
 Optimizer utilities for training
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch

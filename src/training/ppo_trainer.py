@@ -1,7 +1,10 @@
+# src/training/parallel_trainer_base.py
 """
 PPO trainer with rollout buffer, GAE, and clipped surrogate objective.
 Optimized for speed: vectorized GAE, pre-allocated buffers, no_grad for rollout only.
 Supports auxiliary tasks.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch
@@ -30,7 +33,7 @@ class PPOTrainer(ParallelTrainerBase):
         self.gamma = train_cfg['gamma']
         self.gae_lambda = train_cfg['gae_lambda']
 
-        # Disable AMP – huge overhead due to .item() calls inside GradScaler
+        # Disable AMP - huge overhead due to .item() calls inside GradScaler
         self.use_amp = False
         self.scaler = None
 
@@ -222,7 +225,7 @@ class PPOTrainer(ParallelTrainerBase):
                             # Compute component losses for logging
                             with torch.no_grad():
                                 energy_loss = torch.nn.functional.mse_loss(energy_pred.squeeze(-1), batch['energy_targets'])
-                                # Cross‑entropy for observation
+                                # Cross-entropy for observation
                                 B, T, obs_size, vocab_size = obs_pred_logits.shape
                                 obs_ce = F.cross_entropy(
                                     obs_pred_logits.view(-1, vocab_size),

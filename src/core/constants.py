@@ -1,6 +1,9 @@
+# src/core/constants.py
 """
 Constants for Maze RL - centralized definitions for observations, actions, and tokens
 NO UNUSED TOKENS - 0-18 (19 tokens total)
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 from enum import IntEnum

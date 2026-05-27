@@ -8,3 +8,4 @@ tqdm>=4.65.0
 numba>=0.57.0
 imageio>=2.31.0
 pybind11>=2.10.0
+imageio[ffmpeg]

@@ -1,3 +1,6 @@
+// environment.hpp
+// Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 #pragma once
 #include <vector>
 #include <random>
@@ -15,7 +18,7 @@
 namespace py = pybind11;
 
 // ------------------------------------------------------------------
-// Aligned allocator for SIMD (32‑byte alignment)
+// Aligned allocator for SIMD (32-byte alignment)
 // ------------------------------------------------------------------
 template <typename T, std::size_t Alignment = 32>
 struct AlignedAllocator {
@@ -95,7 +98,7 @@ public:
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
     std::tuple<const std::vector<int>&, double, bool, bool, StepInfo> step(int action);
     const StepInfo& get_last_info() const { return last_info_; }
-    py::array_t<uint8_t> render(int render_size = 512);
+    py::array_t<uint8_t> render(int render_size);
 
     int get_max_steps() const { return max_steps_; }
     float get_energy() const { return energy_; }
@@ -205,7 +208,7 @@ private:
     int nextDoorNumber_;
     std::mt19937 rng_;
 
-    // Pre‑computed neighbour offsets (for observation)
+    // Pre-computed neighbour offsets (for observation)
     static constexpr int dy8_[8] = {-1,-1,-1,0,0,1,1,1};
     static constexpr int dx8_[8] = {-1,0,1,-1,1,-1,0,1};
 

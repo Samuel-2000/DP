@@ -1,6 +1,8 @@
 # src/core/cpp_build.py
 """
 Helper functions for building and importing the C++ maze_core module.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import subprocess

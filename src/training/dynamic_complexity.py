@@ -1,5 +1,8 @@
+# src/training/dynamic_complexity.py
 """
-Dynamic complexity manager – exact original implementation from monolithic trainer.py
+Dynamic complexity manager - exact original implementation from monolithic trainer.py
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import numpy as np

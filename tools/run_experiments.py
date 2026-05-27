@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 run_experiments.py - Adaptive hyperparameter search with resume.
-Now includes hardcoded final experiments (no incremental complexity).
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import subprocess
@@ -369,7 +370,7 @@ def main():
 
     # The incremental complexity run is removed entirely
 
-    # Networks experiment (adaptive part – may duplicate later hardcoded but we keep it for completeness)
+    # Networks experiment (adaptive part - may duplicate later hardcoded but we keep it for completeness)
     print("\n>>> Networks experiment (adaptive, based on global best)")
     base = load_global_best()
     base["grid_size"] = 19

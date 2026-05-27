@@ -1,5 +1,8 @@
+# src/networks/base.py
 """
-Base classes for neural networks – extended with optional value head and auxiliary tasks.
+Base classes for neural networks - extended with optional value head and auxiliary tasks.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch

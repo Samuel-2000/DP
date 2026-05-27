@@ -1,11 +1,13 @@
 # src/core/env_factory_cpp.py
 """
 Environment factory for C++ maze_core module
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 from typing import Dict, Any
 import maze_core
-
+from src.core.constants import DEFAULT_RENDER_SIZE
 
 class EnvironmentFactoryCPP:
     """Factory for creating C++ maze environments"""
@@ -20,7 +22,7 @@ class EnvironmentFactoryCPP:
         
         # Set render size based on mode
         if test_mode:
-            env_config['render_size'] = 512
+            env_config['render_size'] = DEFAULT_RENDER_SIZE
         else:
             env_config['render_size'] = 0
         

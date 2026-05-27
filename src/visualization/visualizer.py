@@ -1,3 +1,10 @@
+"""
+abstractions and helpers over render() method.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+"""
+
+
 import cv2
 import numpy as np
 from pathlib import Path
@@ -22,23 +29,18 @@ class Visualizer:
         self.trail: List[Tuple[int, int, int]] = []  # (y, x, step)
         self.frames = []
 
-        self.video_writer = None
+        # Prepare output path if saving is requested
         if save_video and video_path:
             video_path.parent.mkdir(parents=True, exist_ok=True)
-            if as_gif:
-                self.video_path = video_path
-            else:
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                self.video_writer = cv2.VideoWriter(str(video_path), fourcc, 20.0, (render_size, render_size))
+            self.video_path = video_path
+        else:
+            self.video_path = None
 
     def reset(self):
         """Reset visualisation state for a new episode."""
         self.visited.clear()
         self.trail.clear()
         self.frames.clear()
-        if self.video_writer:
-            self.video_writer.release()
-            self.video_writer = None
 
     def render(self, step: int) -> np.ndarray:
         """
@@ -83,24 +85,29 @@ class Visualizer:
         if self.show_trail:
             frame = self._draw_trail_alpha(frame, cell_size, step, crop_offset)
 
-        # Store for video
+        # Store frame (convert BGR to RGB for imageio)
         if self.save_video:
-            if self.as_gif:
-                self.frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            elif self.video_writer:
-                self.video_writer.write(frame)
+            self.frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
         return frame
 
     def finalize(self):
-        """Close video writer and save GIF if needed."""
-        if self.save_video and self.as_gif and self.frames:
+        """Save animation (GIF or MP4) using imageio."""
+        if not self.save_video or not self.frames:
+            return
+
+        if self.as_gif:
+            # GIF: 50 ms per frame → 20 fps, loop forever
             imageio.mimsave(self.video_path, self.frames, duration=50, loop=0)
             print(f"✓ Saved GIF to {self.video_path}")
-        elif self.video_writer:
-            self.video_writer.release()
+        else:
+            # MP4: 20 fps (same as original VideoWriter setting)
+            imageio.mimsave(self.video_path, self.frames, fps=20)
+            print(f"✓ Saved MP4 to {self.video_path}")
 
-    # ---- Private helper methods ----
+        self.frames.clear()
+
+    # ---- Private helper methods (unchanged) ----
     def _apply_fog_of_war(self, frame, original_frame, grid_size, cell_size):
         """
         Black out cells not visited, but keep the UI text from original_frame.

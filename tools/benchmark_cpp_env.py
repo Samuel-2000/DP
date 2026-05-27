@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+
 """
-benchmark_cpp_env.py – Performance benchmark for the C++ GridMazeWorld.
+benchmark_cpp_env.py - Performance benchmark for the C++ GridMazeWorld.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import sys

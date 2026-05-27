@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-test_environment_mosaic_pdf.py
-Vector‑layout PDF (400 DPI) with 2× super‑sampled maze images.
-No title, vertical row labels perfectly centred on the image rows.
+multiple_envs_screenshot.py
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import sys
@@ -23,7 +23,7 @@ import maze_core
 from src.core.utils import seed_everything
 
 # ----------------------------------------------------------------------
-# Layout (inches) – tuned for height ≈ 1.4 × width, DPI = 400
+# Layout (inches) - tuned for height ≈ 1.4 × width, DPI = 400
 # ----------------------------------------------------------------------
 DPI           = 400
 PANEL_SIZE_IN = 3.0                     # 1200 px ÷ 400 dpi
@@ -73,7 +73,7 @@ BASE_SEED = 43
 
 # ----------------------------------------------------------------------
 def render_env_super_sampled(grid_size, task_class, complexity_level, seed, display_px):
-    """Render at 2× display resolution, then downsample for anti‑aliasing."""
+    """Render at 2× display resolution, then downsample for anti-aliasing."""
     seed_everything(seed)
 
     env = maze_core.GridMazeWorld(
@@ -84,7 +84,7 @@ def render_env_super_sampled(grid_size, task_class, complexity_level, seed, disp
     )
     obs, info = env.reset(seed=seed)
 
-    # 2× super‑sampling
+    # 2× super-sampling
     render_size = 2 * display_px
     cell_px = max(1, render_size // grid_size)
     internal_size = grid_size * cell_px
@@ -121,7 +121,7 @@ for row_idx, (task, comp) in enumerate(ROW_COMBOS):
     fig.text(x_label / page_width_in, y_center_mpl / page_height_in,
              label_str, rotation=90, ha='center', va='center', fontsize=10)
 
-# Place each super‑sampled maze image
+# Place each super-sampled maze image
 display_px = int(PANEL_SIZE_IN * DPI)   # 1200 px at 400 DPI
 
 for row_idx, (task, comp) in enumerate(ROW_COMBOS):
@@ -145,4 +145,4 @@ for row_idx, (task, comp) in enumerate(ROW_COMBOS):
 output_path = Path("test_environment_mosaic.pdf")
 fig.savefig(str(output_path), dpi=DPI, bbox_inches='tight', pad_inches=0.02)
 plt.close(fig)
-print(f"High‑quality PDF saved to {output_path}")
+print(f"High-quality PDF saved to {output_path}")

@@ -1,3 +1,6 @@
+// environment.cpp
+// Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 #include "environment.hpp"
 #include <algorithm>
 #include <cmath>
@@ -9,7 +12,7 @@
 #include <functional>
 
 // ============================================================================
-//  GridMazeWorld – design rationale
+//  GridMazeWorld - design rationale
 // ============================================================================
 //
 //  This environment is built around three principles:
@@ -22,23 +25,23 @@
 //     are exactly the articulation points whose removal would create ≥2
 //     components with sufficient empty cells.  Buttons are placed inside
 //     those components via a *bounded BFS* (the articulation point property
-//     guarantees the search frontiers cannot merge, making a full flood‑fill
+//     guarantees the search frontiers cannot merge, making a full flood-fill
 //     unnecessary).
 //
-//  2. Centre‑biased spread food placement
+//  2. Centre-biased spread food placement
 //     A purely random placement can create large empty regions or tight
-//     clusters, reducing the pressure to explore.  The centre‑biased
+//     clusters, reducing the pressure to explore.  The centre-biased
 //     algorithm puts a fraction of sources near the map centre (easy)
-//     and distributes the remainder in a quasi‑regular pattern with
+//     and distributes the remainder in a quasi-regular pattern with
 //     random jitter (hard).  The balance is controlled by `complexity_level`.
 //
 //  3. Low computational overhead
-//     All per‑reset operations are O(N) (N = grid_size²).  The articulation
+//     All per-reset operations are O(N) (N = grid_size²).  The articulation
 //     point cache for the empty grid is computed once at construction.
 //     During a step, door updates are O(D) and food regrowth
 //     events are served from a priority queue in O(log F).  The result is
 //     an environment that runs at thousands of steps per second on a
-//     single CPU core, suitable for large‑scale deep RL.
+//     single CPU core, suitable for large-scale deep RL.
 //
 // ============================================================================
 
@@ -52,7 +55,7 @@ bool GridMazeWorld::Door::open() {
 }
 
 // ----------------------------------------------------------------------
-// Constructor (unchanged – scaling already included)
+// Constructor (unchanged - scaling already included)
 // ----------------------------------------------------------------------
 GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float ed, float eps,
                              const std::string& tc, float cl, int nd, int dod, int dcd,
@@ -87,7 +90,7 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
     last_info_ = StepInfo{};
 
     // ------------------------------------------------------------------
-    // Grid‑size dependent scaling for doors/buttons
+    // Grid-size dependent scaling for doors/buttons
     // ------------------------------------------------------------------
     int grid_area = grid_size_ * grid_size_;
     int max_doors_by_grid_ = std::max(1, grid_area / 30);
@@ -128,7 +131,7 @@ GridMazeWorld::GridMazeWorld(int gs, int ms, int nf, float fe, float ie, float e
     //  Precompute the set of cells that are NOT articulation points
     //  in an *empty* grid (boundary walls only).  This set is identical
     //  for every episode of the same grid size, so we cache it once and
-    //  reuse it for all future resets – an O(N) cost only once.
+    //  reuse it for all future resets - an O(N) cost only once.
     // ----------------------------------------------------------------
     precomputeSafeCells();
 }
@@ -163,15 +166,15 @@ int GridMazeWorld::getActualFoodSources() {
 // ----------------------------------------------------------------------
 //  Obstacle placement WITH GUARANTEED CONNECTIVITY
 // ----------------------------------------------------------------------
-//  Instead of trial‑and‑error flood‑fills (which can be O(N²) if many
+//  Instead of trial-and-error flood-fills (which can be O(N²) if many
 //  attempts are needed), we exploit the graph property of articulation
 //  points.  A cell that is NOT an articulation point can be turned into
 //  an obstacle without disconnecting the free space.
 //
 //  Step 1: start from an empty grid + boundary walls.
-//  Step 2: shuffle the precomputed list of non‑articulation inner cells
+//  Step 2: shuffle the precomputed list of non-articulation inner cells
 //          (safe_cells_cache_) and take the first `n_obstacles_`.
-//  Step 3: a fast connected‑component labelling pass (connectIsolatedCells)
+//  Step 3: a fast connected-component labelling pass (connectIsolatedCells)
 //          ensures we never accidentally split the map; in practice it
 //          rarely changes anything, but it acts as a safety net.
 // ----------------------------------------------------------------------
@@ -185,7 +188,7 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
         grid_[idx(i, grid_size_ - 1)] = static_cast<uint8_t>(TileType::OBSTACLE);
     }
 
-    // Use the precomputed safe cells – shuffle and pick first n_obstacles_
+    // Use the precomputed safe cells - shuffle and pick first n_obstacles_
     std::vector<int> shuffled = safe_cells_cache_;  // copy
     std::shuffle(shuffled.begin(), shuffled.end(), rng_);
     int to_remove = std::min(n_obstacles_, (int)shuffled.size());
@@ -198,13 +201,13 @@ void GridMazeWorld::placeObstaclesWithConnectivity() {
 }
 
 // ----------------------------------------------------------------------
-//  Precomputation of non‑articulation cells (empty grid)
+//  Precomputation of non-articulation cells (empty grid)
 // ----------------------------------------------------------------------
 //  The articulation point status of a cell depends ONLY on the set of
 //  obstacles.  Because every episode starts from the *same* empty grid
 //  (only boundary walls), we can run Tarjan’s DFS once and store all
 //  cells that are NOT articulation points.  This cache is then reused
-//  for every reset, reducing the per‑episode cost from O(N) DFS to an
+//  for every reset, reducing the per-episode cost from O(N) DFS to an
 //  O(N) copy + shuffle.
 // ----------------------------------------------------------------------
 void GridMazeWorld::precomputeSafeCells() {
@@ -266,9 +269,9 @@ void GridMazeWorld::precomputeSafeCells() {
 // ----------------------------------------------------------------------
 //  Connectivity safety net: merge any isolated components
 // ----------------------------------------------------------------------
-//  Although the articulation‑point method guarantees connectivity in
-//  theory, a double‑check is cheap insurance.  We run a simple 4‑way
-//  flood‑fill to label components.  If more than one component exists,
+//  Although the articulation-point method guarantees connectivity in
+//  theory, a double-check is cheap insurance.  We run a simple 4-way
+//  flood-fill to label components.  If more than one component exists,
 //  straight corridors are carved from each small component toward the
 //  largest one.  This step is O(N) and almost never needed in practice,
 //  but it makes the environment robust against edge cases.
@@ -389,14 +392,14 @@ bool GridMazeWorld::checkComponentsMinSize(int y, int x, int minEmpty) {
 }
 
 // ----------------------------------------------------------------------
-//  Food source placement – centre‑biased spread
+//  Food source placement - centre-biased spread
 // ----------------------------------------------------------------------
 //  Motivation:
 //  - Uniform random placement can create huge empty regions and very
 //    dense clusters, both of which reduce the need for exploration.
-//  - The centre‑biased method gives a tunable difficulty:
+//  - The centre-biased method gives a tunable difficulty:
 //    a fraction (1 - complexity_level) of the sources are placed near
-//    the centre (easy), the rest are spread quasi‑regularly across
+//    the centre (easy), the rest are spread quasi-regularly across
 //    the whole maze (hard).
 //  - It runs in O(N) time, only scanning the list of empty cells once.
 //
@@ -459,7 +462,7 @@ void GridMazeWorld::initFoodSources() {
         used[idc] = true;
     }
 
-    // Spread selection: dynamic per‑food pool with random offsets
+    // Spread selection: dynamic per-food pool with random offsets
     int k = std::max(2, static_cast<int>(std::sqrt(static_cast<float>(N) / std::max(n_food, 1))));
     std::uniform_int_distribution<int> delayDist(10, 30);
     int need = n_food - static_cast<int>(chosen.size());
@@ -485,7 +488,7 @@ void GridMazeWorld::initFoodSources() {
         used[chosen_idx] = true;
     }
 
-    // (Optional safety: if still fewer chosen than n_food – should not happen)
+    // (Optional safety: if still fewer chosen than n_food - should not happen)
     // but we keep original fallback for robustness
     if (static_cast<int>(chosen.size()) < n_food) {
         std::vector<int> remaining;
@@ -530,11 +533,11 @@ void GridMazeWorld::initFoodSources() {
 // ----------------------------------------------------------------------
 //  This DFS runs on the *complete static grid* (static_grid_), including
 //  obstacles but NOT doors/buttons yet.  It computes:
-//  - `is_articulation_final_[u]` – whether removing u disconnects the
+//  - `is_articulation_final_[u]` - whether removing u disconnects the
 //    free space,
-//  - `artic_comp_count_[u]` – number of connected components after removal,
-//  - `artic_comp_sizes_[u]` – sizes of those components,
-//  - `subtree_empty_[u]` – number of empty cells in the DFS subtree.
+//  - `artic_comp_count_[u]` - number of connected components after removal,
+//  - `artic_comp_sizes_[u]` - sizes of those components,
+//  - `subtree_empty_[u]` - number of empty cells in the DFS subtree.
 //
 //  These data are later used to decide where doors can be placed and how
 //  many buttons each door needs.
@@ -633,14 +636,14 @@ void GridMazeWorld::computeFinalArticulationPoints() {
 }
 
 // ----------------------------------------------------------------------
-//  Door & button initialisation – articulation‑point‑based placement
+//  Door & button initialisation - articulation-point-based placement
 // ----------------------------------------------------------------------
 //  Door candidates:
 //  - Must be articulation points (comps ≥ 2).
 //  - Each resulting component must have ≥ minEmpty empty cells.
 //  - A subset of doors will require buttons (depends on task_class).
 //
-//  Button placement (for button‑required doors):
+//  Button placement (for button-required doors):
 //  - Because the door is an articulation point, its removal separates
 //    the graph into exactly `comps` components.
 //  - A *bounded BFS* is run from the four neighbours, restricted to a
@@ -671,7 +674,7 @@ void GridMazeWorld::initDoorsAndButtons() {
         if (!requires_button) {
             candidates.push_back(i);
         } else {
-            // For button‑required doors we need enough components to place a button in each
+            // For button-required doors we need enough components to place a button in each
             if (comps <= n_buttons_per_door_)
                 candidates.push_back(i);
         }
@@ -707,7 +710,7 @@ void GridMazeWorld::initDoorsAndButtons() {
         }
 
         if (!requires_button) {
-            // Automatic door – no buttons, toggles open/closed periodically
+            // Automatic door - no buttons, toggles open/closed periodically
             if (!checkComponentsMinSize(y, x, 2)) continue;
             Door d{y, x, door_open_duration_, door_close_duration_, nextDoorNumber_,
                    false, true, false, 0};
@@ -719,7 +722,7 @@ void GridMazeWorld::initDoorsAndButtons() {
             door_open_[cid] = d.is_open ? 1 : 0;
             ++nextDoorNumber_;
         } else {
-            // Button‑required door – only the door cell now, buttons later
+            // Button-required door - only the door cell now, buttons later
             if (!checkComponentsMinSize(y, x, 3)) continue;
             Door d{y, x, door_open_duration_, door_close_duration_, nextDoorNumber_,
                    true, true, false, 0};
@@ -742,7 +745,7 @@ void GridMazeWorld::initDoorsAndButtons() {
     // **CRITICAL FIX:** Resize working_buttons_per_door_ to match number of doors
     working_buttons_per_door_.assign(doors_.size(), 0);
 
-    // Place buttons for each button‑required door
+    // Place buttons for each button-required door
     for (size_t di = 0; di < doors_.size(); ++di) {
         if (doors_[di].requires_button) {
             placeButtonsForDoor(static_cast<int>(di));
@@ -778,13 +781,13 @@ void GridMazeWorld::placeButtonsForDoor(int doorIdx) {
 
     int maxdist = std::max(0, door_open_duration_ - 2);
 
-    // Build mask: passable = not obstacle, and not a button‑required (closed) door.
+    // Build mask: passable = not obstacle, and not a button-required (closed) door.
     // Automatic doors are treated as passable (agent can wait for them to open).
     std::vector<uint8_t> local_mask(total_cells_, 0);
     for (int i = 0; i < total_cells_; ++i) {
         uint8_t t = static_grid_[i];
         if (t == static_cast<uint8_t>(TileType::OBSTACLE)) continue;
-        // Only block button‑required doors that are closed.
+        // Only block button-required doors that are closed.
         // Automatic doors (requires_button == false) are NOT blocked.
         if (t == static_cast<uint8_t>(TileType::DOOR_CLOSED)) {
             int did = door_at_cell_[i];
@@ -946,7 +949,7 @@ std::tuple<std::vector<int>, std::map<std::string, double>> GridMazeWorld::reset
     int new_food_count = getActualFoodSources();
     if (new_food_count != n_food_sources_) {
         n_food_sources_ = new_food_count;
-        // Containers that depend on n_food_sources_ will be re‑initialized
+        // Containers that depend on n_food_sources_ will be re-initialized
         // inside initFoodSources() and the later call to cacheResetState().
     }
 

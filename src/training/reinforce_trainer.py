@@ -1,7 +1,10 @@
+# src/training/parallel_trainer_base.py
 """
 REINFORCE trainer with optional dynamic complexity.
 Optimized rollout collection for unchanged VectorizedMazeEnv.
 Uses minimal scalar extraction to avoid expensive .cpu() calls.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 from __future__ import annotations
@@ -267,7 +270,7 @@ class ReinforceTrainer(ParallelTrainerBase):
             # Extract component losses for logging
             with torch.no_grad():
                 energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
-                # Cross‑entropy loss is already logged as aux_loss's obs part,
+                # Cross-entropy loss is already logged as aux_loss's obs part,
                 # but we can still compute it separately for logging if desired.
                 # Here we compute it again for consistency.
                 B, T, obs_size, vocab_size = obs_pred_logits.shape
@@ -288,7 +291,7 @@ class ReinforceTrainer(ParallelTrainerBase):
                 "policy_loss": self._scalar(policy_loss_only.detach()),
                 "aux_loss": self._scalar(aux_loss.detach()),
                 "energy_loss": self._scalar(energy_loss.detach()),
-                "obs_loss": self._scalar(obs_ce_loss.detach()),   # now cross‑entropy value
+                "obs_loss": self._scalar(obs_ce_loss.detach()),   # now cross-entropy value
             }
 
         else:

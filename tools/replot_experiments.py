@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-replot_experiments.py – Re‑generate all training plots for existing experiments.
+replot_experiments.py - Re-generate all training plots for existing experiments.
 Usage: python tools/replot_experiments.py [--dry-run] [--verbose]
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import sys
@@ -26,7 +28,7 @@ def find_metrics_dirs(root_dir: Path) -> list[Path]:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Re‑plot all experiment metrics.")
+    parser = argparse.ArgumentParser(description="Re-plot all experiment metrics.")
     parser.add_argument("--dry-run", action="store_true", help="Only print what would be done.")
     parser.add_argument("--verbose", action="store_true", help="Print each command before running.")
     args = parser.parse_args()
@@ -68,7 +70,7 @@ def main():
                 stderr = e.stderr.decode('utf-8', errors='replace') if e.stderr else 'none'
                 print(f"     stderr: {stderr}")
 
-    print("\n✅ Re‑plotting finished.")
+    print("\n✅ Re-plotting finished.")
     return 0
 
 if __name__ == "__main__":

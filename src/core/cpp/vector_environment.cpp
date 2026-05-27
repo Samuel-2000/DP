@@ -1,4 +1,6 @@
 // vector_environment.cpp
+// Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 #include "vector_environment.hpp"
 #include <algorithm>
 #include <omp.h>   // OpenMP header

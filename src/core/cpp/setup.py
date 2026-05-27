@@ -1,3 +1,6 @@
+# environment.cpp
+# Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 from setuptools import setup, Extension
 import pybind11
 import os

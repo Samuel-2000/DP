@@ -1,7 +1,9 @@
-# src/networks/lstm.py - FIXED VERSION with value head
+# src/networks/lstm.py
 """
 LSTM-based policy network (Simplified to match original)
 Now includes optional value head for PPO.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch
@@ -122,7 +124,7 @@ class LSTMPolicyNet(BaseNetwork):  # Inherit from BaseNetwork
                 nn.Linear(hidden_size, observation_size * vocab_size)
             )
 
-        # Value head (for PPO) – created in BaseNetwork if use_value_head=True
+        # Value head (for PPO) - created in BaseNetwork if use_value_head=True
         # (BaseNetwork already defines self.value_head)
 
         # Hidden state - store as None initially

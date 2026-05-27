@@ -1,13 +1,14 @@
-# run.py
 #!/usr/bin/env python3
+
+# run.py
+# Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 import sys
 from pathlib import Path
 from parser import parse_args
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-
 
 
 from src.core.agent import Agent
@@ -67,6 +68,7 @@ def main():
         generate_plots_from_metrics(metrics, plots_dir, increase_threshold, decrease_threshold)
         print(f"Plots saved to {plots_dir}")
         return
+
 
     env_config = {
         "grid_size": args.grid_size,

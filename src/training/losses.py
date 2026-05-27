@@ -1,5 +1,8 @@
+# src/training/losses.py
 """
-Loss functions for RL training – REINFORCE, auxiliary, and PPO.
+Loss functions for RL training - REINFORCE, auxiliary, and PPO.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch
@@ -8,7 +11,7 @@ from typing import Tuple, Optional
 
 
 """
-Loss functions for RL training – fully vectorized REINFORCE (no loops).
+Loss functions for RL training - fully vectorized REINFORCE (no loops).
 """
 
 import torch
@@ -54,7 +57,7 @@ class PolicyLoss:
     def __call__(self, logits: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor,
                  mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        mask is ignored – provided for API compatibility only.
+        mask is ignored - provided for API compatibility only.
         All episodes are assumed to be of full length (no terminal truncation).
         """
         # Compute log probs
@@ -81,7 +84,7 @@ class AuxiliaryLoss:
     """
     Auxiliary losses for self-supervised learning:
       - Energy prediction (MSE)
-      - Observation prediction (cross‑entropy over tokens)
+      - Observation prediction (cross-entropy over tokens)
     """
 
     def __init__(self, energy_coef: float = 0.1, obs_coef: float = 0.05):
@@ -102,7 +105,7 @@ class AuxiliaryLoss:
         # Energy MSE
         energy_loss = F.mse_loss(energy_pred.squeeze(-1), energy_target)
 
-        # Observation cross‑entropy
+        # Observation cross-entropy
         B, T, obs_size, vocab_size = obs_pred_logits.shape
         ce_loss = F.cross_entropy(
             obs_pred_logits.view(-1, vocab_size),   # [B*T*obs_size, vocab]

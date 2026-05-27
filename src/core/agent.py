@@ -1,5 +1,8 @@
+# src/core/agent.py
 """
 Agent class using consistent constants
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch
@@ -12,7 +15,7 @@ from src.networks.lstm import LSTMPolicyNet
 from src.networks.transformer import TransformerPolicyNet
 from src.core.utils import safe_load
 from src.core.constants import (
-    OBSERVATION_SIZE, ACTION_SIZE, VOCAB_SIZE,
+    OBSERVATION_SIZE, ACTION_SIZE, VOCAB_SIZE, DEFAULT_RENDER_SIZE,
     ObservationTokens, Actions
 )
 
@@ -184,7 +187,7 @@ class Agent:
             model_name = f"{self.network_type}_model"
         clean_model_name = model_name.replace('/', '_').replace('\\', '_')
 
-        render_size = 512 if (args.visualize or args.save_video) else 0
+        render_size = DEFAULT_RENDER_SIZE if (args.visualize or args.save_video) else 0
         total_episodes = 0
 
         for epoch in range(args.epochs):

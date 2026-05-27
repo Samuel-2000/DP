@@ -1,7 +1,9 @@
-# utils.py
+# src/networks/utils.py
 
 """
 Utility functions for Maze RL
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import logging

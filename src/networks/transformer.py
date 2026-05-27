@@ -2,7 +2,9 @@
 """
 Transformer-based policy network with positional encoding, causal masking,
 recurrent memory tokens, and optional value head.
-Now uses cross‑entropy for observation prediction.
+Now uses cross-entropy for observation prediction.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import torch
@@ -162,7 +164,7 @@ class TransformerPolicyNet(BaseNetwork):
                 nn.Linear(hidden_size // 2, observation_size * vocab_size)
             )
 
-        # Value head (for PPO) – created in BaseNetwork if use_value_head=True
+        # Value head (for PPO) - created in BaseNetwork if use_value_head=True
         # (BaseNetwork already defines self.value_head)
 
         # Recurrent memory: stored between forward calls

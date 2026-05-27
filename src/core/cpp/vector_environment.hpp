@@ -1,4 +1,6 @@
 // vector_environment.hpp
+// Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 #pragma once
 #include <vector>
 #include <memory>

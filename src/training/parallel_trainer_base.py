@@ -1,6 +1,9 @@
+# src/training/parallel_trainer_base.py
 """
 Base parallel trainer with vectorized environments, metrics, saving, dynamic complexity,
 and training plots. Extended with deterministic and stochastic test lines.
+
+Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
 
 import time
@@ -64,8 +67,8 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
         test_q3_arr = np.array(test_q3)
         test_max_arr = np.array(test_max)
         
-        ax.fill_between(te, test_min_arr, test_max_arr, color='yellow', alpha=0.2, label='Range (min–max)')
-        ax.fill_between(te, test_q1_arr, test_q3_arr, color='orange', alpha=0.4, label='IQR (Q1–Q3)')
+        ax.fill_between(te, test_min_arr, test_max_arr, color='yellow', alpha=0.2, label='Range (min-max)')
+        ax.fill_between(te, test_q1_arr, test_q3_arr, color='orange', alpha=0.4, label='IQR (Q1-Q3)')
         ax.plot(te, test_median_arr, color='red', linewidth=1.5, linestyle='--', label='Median')
         ax.plot(te, test_min_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
         ax.plot(te, test_max_arr, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
@@ -252,7 +255,7 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
                         ax.plot(x_line, p(x_line), 'r--', linewidth=2, label=f'Trend: {z[0]:.2f}*x + {z[1]:.2f}')
                     except np.linalg.LinAlgError:
                         pass
-            ax.set_title(f'Reward vs Complexity – {stage.capitalize()} stage (raw data)')
+            ax.set_title(f'Reward vs Complexity - {stage.capitalize()} stage (raw data)')
             ax.set_xlabel('Complexity Level')
             ax.set_ylabel('Reward')
             ax.grid(True, alpha=0.3)
@@ -322,7 +325,7 @@ class ParallelTrainerBase:
         )
         self.gradient_clipper = GradientClipper(max_norm=training_cfg['max_grad_norm'])
 
-        # Metrics dictionary (full set) – removed test_rewards
+        # Metrics dictionary (full set) - removed test_rewards
         self.metrics = {
             'train_rewards': [],
             'train_losses': [],

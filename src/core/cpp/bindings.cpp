@@ -8,7 +8,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(maze_core, m) {
     // ------------------------------------------------------------------
-    // StepInfo – exposed as a Python object with read-only attributes
+    // StepInfo - exposed as a Python object with read-only attributes
     // ------------------------------------------------------------------
     py::class_<StepInfo>(m, "StepInfo")
         .def_readonly("energy", &StepInfo::energy)
@@ -27,7 +27,7 @@ PYBIND11_MODULE(maze_core, m) {
         });
 
     // ------------------------------------------------------------------
-    // GridMazeWorld – single environment (fast path)
+    // GridMazeWorld - single environment (fast path)
     // ------------------------------------------------------------------
     py::class_<GridMazeWorld>(m, "GridMazeWorld")
         .def(py::init<int,int,int,float,float,float,float,
@@ -56,7 +56,7 @@ PYBIND11_MODULE(maze_core, m) {
         .def_property_readonly("food_exists", &GridMazeWorld::get_food_exists);
 
     // ------------------------------------------------------------------
-    // VectorizedMazeEnv – parallel environments (still returns StepInfo)
+    // VectorizedMazeEnv - parallel environments (still returns StepInfo)
     // ------------------------------------------------------------------
     py::class_<VectorizedMazeEnv>(m, "VectorizedMazeEnv")
         .def(py::init<int,int,int,int,float,float,float,float,

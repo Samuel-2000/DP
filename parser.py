@@ -1,9 +1,11 @@
 # parser.py
+# Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Memory Maze RL Experiments – Explicit parameters.",
+        description="Memory Maze RL Experiments - Explicit parameters.",
         epilog="""
         Examples:
             # Train with dynamic complexity
@@ -18,10 +20,11 @@ def parse_args():
 
             
             # Test a model
-            python run.py test --model experiments/lstm_example_best.pt --epochs 10 [--visualize --show-trail --fog-of-war --save-video] --task-class doors --complexity-level 0.7 [--n-doors 5]
+            python run.py test --model experiments/lstm_example.pt --epochs 10 --visualize --show-trail --fog-of-war --save-video --task-class complex --complexity-level 0.5 --grid-size 19 max-steps 200
+            python run.py test --model experiments/lstm_example.pt --epochs 10 --task-class doors --complexity-level 0.7 --n-doors 5
 
             # dynamic complexity test across stages and complexities
-            python run.py test --model experiments/lstm_best.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
+            python run.py test --model experiments/lstm_example.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
             run.py test --model /experiments/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
 
             # Human play mode
@@ -35,7 +38,7 @@ def parse_args():
 
 
             # Resume training (load saved checkpoint)
-            python run.py train --network-type lstm --hidden-size 512 --batch-size 64 --lr 0.0006 --algorithm ppo --ppo-intra-epochs 1 --mini-batch-size 64 --grid-size 19 --max-steps 200 --task-class complex --complexity-level 0.5 --auxiliary-tasks --epochs 10000 --experiment-name bigger_grid_size_experiment --resume ./experiments/bigger_grid_size_experiment/lstm_hs512/ppo/adam/with_aux/64b_0.0006lr_gs19_pie1_mb64/2026-05-26_22-25-41/weights/epoch_003000_checkpoint.pt
+            python run.py train --network-type lstm --hidden-size 512 --batch-size 64 --lr 0.0006 --algorithm ppo --ppo-intra-epochs 1 --mini-batch-size 64 --grid-size 19 --max-steps 200 --task-class complex --complexity-level 0.5 --auxiliary-tasks --epochs 10000 --experiment-name bigger_grid_size_experiment --resume ./experiments/bigger_grid_size_experiment/lstm_hs512/ppo/adam/with_aux/64b_0.0006lr_gs19_pie1_mb64/2026-04-26_22-25-41/weights/epoch_003000_checkpoint.pt
 
         """
     )

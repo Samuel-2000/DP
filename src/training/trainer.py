@@ -1,4 +1,6 @@
-# trainer.py
+# src/training/trainer.py
+# Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
+
 from .reinforce_trainer import ReinforceTrainer
 from .ppo_trainer import PPOTrainer
 
