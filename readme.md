@@ -44,7 +44,10 @@ Examples are provided in the file.
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 pip install -r requirements.txt
 ```
-on linux we need opencv for c++ if not already installed.:
+
+we need opencv for c++ if not already installed.
+
+on linux:
 ```bash
 apt-get install -y libopencv-dev
 
@@ -52,9 +55,11 @@ apt-get install -y libopencv-dev
 on windows download, extract and put into %PATH%: https://sourceforge.net/projects/opencvlibrary/
 
 
+example on google collab: https://colab.research.google.com/drive/1o8cO3dCzL7U-lZhuhCCrZ7CBpT8TyppX?usp=sharing
+
 ---
 
-### 1. Try Human Play Mode
+### 1. Try Human Play Mode (Need desktop with display for visualisation)
 
 Get familiar with the environment by playing manually (action keys shown in console (W/A/S/D/B/Space)):
 
@@ -64,7 +69,7 @@ python run.py test --play --epochs 1 --dynamic-complexity --curriculum-stages co
 
 ---
 
-### 2. Watch a Trained LSTM Agent
+### 2. Watch a Trained LSTM Agent (Need desktop with display for visualisation)
 
 Inspect how a trained agent behaves:
 

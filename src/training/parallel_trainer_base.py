@@ -83,13 +83,11 @@ def generate_plots_from_metrics(metrics: Dict[str, Any], plots_dir: Path, increa
     if len(test_stoch_epochs) > 0 and len(test_stoch_rewards) > 0:
         ax.plot(test_stoch_epochs, test_stoch_rewards, 'g--', linewidth=1.5, label='Test (stochastic)')
 
-    # Use median for best test reward (now the primary metric)
     best_test_reward = max(metrics.get('test_median', [0.0]))
     ax.set_title('Training & Test Summary')
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Reward')
     ax.grid(True, alpha=0.3)
-    #ax.legend(loc='best')
 
     best_test_str = f"Best test reward (median): {best_test_reward:.2f}"
     ax.text(0.98, 0.98, time_str, transform=ax.transAxes, ha='right', va='top',
@@ -279,6 +277,13 @@ class ParallelTrainerBase:
         self.config = config
         self.base_seed = config['experiment']['seed']
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # Visualization flag (controlled by --visualize for train command)
+        self.visualize = config['training'].get('visualize', False)
+        if self.visualize:
+            print("🎮 Training visualisation ENABLED (press 'v' for env snapshots, 'q' to quit early)")
+        else:
+            print("🖥️ Training visualisation DISABLED (use --visualize to enable)")
 
         seed_everything(self.base_seed)
 
@@ -540,15 +545,17 @@ class ParallelTrainerBase:
             self.agent.reset()
 
     def _post_epoch_hook(self, epoch: int, dummy):
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('v'):
-            self._visualize_current_environments(epoch)
-            cv2.imshow('Training Controls', dummy)
-        elif key == ord('q'):
-            print("\nEarly stop requested.")
-            self._save_model('interrupted')
-            cv2.destroyAllWindows()
-            return True
+        if self.visualize:
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('v'):
+                self._visualize_current_environments(epoch)
+                if dummy is not None:
+                    cv2.imshow('Training Controls', dummy)
+            elif key == ord('q'):
+                print("\nEarly stop requested.")
+                self._save_model('interrupted')
+                cv2.destroyAllWindows()
+                return True
 
         if self.dynamic and self.complexity_manager is not None:
             if 'epoch_rewards' in self.metrics and self.metrics['epoch_rewards']:
@@ -556,7 +563,7 @@ class ParallelTrainerBase:
             elif self.metrics['train_rewards']:
                 avg_reward = self.metrics['train_rewards'][-1]
             else:
-                return
+                return False
             self.complexity_manager.add_performance(avg_reward)
             adjustment = self.complexity_manager.adjust_complexity(epoch)
             if adjustment:
@@ -849,6 +856,8 @@ class ParallelTrainerBase:
         generate_plots_from_metrics(self.metrics, self.plots_dir, increase_threshold, decrease_threshold)
 
     def _visualize_current_environments(self, epoch: int):
+        if not self.visualize:
+            return
         print(f"\n📸 Visualizing environments at epoch {epoch}")
 
         num_to_show = min(4, len(self.vector_env))
@@ -881,10 +890,15 @@ class ParallelTrainerBase:
         cv2.imshow('Training Visualization', combined)
 
     def _setup_visualization(self):
+        if not self.visualize:
+            # No GUI – return a dummy placeholder (None) that won't be used
+            return None
+
         print("\n🎮 Visualisation Controls:")
         print("  Press 'v' to visualise current environments")
         print("  Press 'q' to stop training early")
         print("=" * 50)
+
         cv2.namedWindow('Training Controls', cv2.WINDOW_NORMAL)
         cv2.resizeWindow('Training Controls', 400, 100)
         dummy = np.zeros((100, 400, 3), dtype=np.uint8)

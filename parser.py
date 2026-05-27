@@ -12,7 +12,7 @@ def parse_args():
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --dynamic-complexity [--curriculum-stages basic doors buttons complex --performance-window 100 --adjustment-interval 500 --complexity-increase-threshold 0.95 --complexity-decrease-threshold 0.7 --complexity-step 0.05 --min-complexity 0.0 --max-complexity 1.0]
             
             # Train without dynamic complexity (static environment)
-            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class doors --complexity-level 0.7 [--n-doors 5]
+            python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class doors --complexity-level 0.7 [--n-doors 5] [--visualize]
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 [--auxiliary-tasks] --task-class buttons [--n-doors 5 --n-buttons-per-door 4 --button-break-probability 0.0]
 
             python run.py train --network-type lstm --epochs 10000 --batch-size 64 --lr 0.0005 --auxiliary-tasks --task-class complex --complexity-level 1.0 --algorithm ppo --ppo-intra-epochs 2 --mini-batch-size 64 --grid-size 19 --max-steps 200
@@ -77,8 +77,7 @@ def parse_args():
     train_parser.add_argument("--test-complexity-step", type=float, default=None, help="Step size for complexity range (default 0.1)")
     train_parser.add_argument("--test-complexity-range", type=float, default=None, help="Range offset for testing around current training complexity (dynamic only)")
 
-
-
+    train_parser.add_argument("--visualize", action="store_true", default=False, help="Enable training visualisation (opens OpenCV windows)")
 
 
     # Dynamic complexity parameters (required only if --dynamic-complexity is set)
