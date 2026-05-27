@@ -41,6 +41,7 @@ Examples are provided in the file.
 ### 0. Install Dependencies
 
 ```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 pip install -r requirements.txt
 ```
 
