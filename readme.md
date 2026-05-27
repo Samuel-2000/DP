@@ -16,7 +16,7 @@ reccomendation:
 python run.py test --play --epochs 1 --dynamic-complexity --curriculum-stages complex --grid-size 19
 
 2. look how a trained lstm agent behaves (Try pressing "O" key during visualisation to see agents current observations, and "P" for pause. other controls are shown in console):
-python run.py test --model experiments/lstm_example.pt --epochs 10 --visualize --show-trail --task-class complex --complexity-level 0.5 --grid-size 19 --max-steps 200
+python run.py test --model experiments/lstm768_example.pt --epochs 10 --visualize --show-trail --task-class complex --complexity-level 0.5 --grid-size 19 --max-steps 200
 
 3. watch the video env.mp4 to have complete understanding of what does the agent see in the environment.
 
