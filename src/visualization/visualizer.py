@@ -1,9 +1,10 @@
 """
-abstractions and helpers over render() method.
+Visualizer: handles fog of war, agent view, trail, and video saving.
+Supports interactive toggling during testing.
+Frame storage is now done manually by the agent to allow overlays.
 
 Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 """
-
 
 import cv2
 import numpy as np
@@ -23,11 +24,19 @@ class Visualizer:
         self.fog_of_war = fog_of_war
         self.show_trail = show_trail
         self.as_gif = as_gif
-        self.render_size = render_size
+
+        # Ensure render_size is a multiple of 16 (required for MP4 encoding)
+        if save_video:
+            self.render_size = self._round_to_multiple_of_16(render_size)
+        else:
+            self.render_size = render_size
 
         self.visited: Set[Tuple[int, int]] = set()
         self.trail: List[Tuple[int, int, int]] = []  # (y, x, step)
-        self.frames = []
+        self.frames = []  # filled manually by the agent
+
+        # Precompute the height of the UI text area (as drawn by the C++ environment)
+        self._text_height = self._get_text_height()
 
         # Prepare output path if saving is requested
         if save_video and video_path:
@@ -36,31 +45,68 @@ class Visualizer:
         else:
             self.video_path = None
 
+    # ------------------------------------------------------------------
+    #  Interactive toggles
+    # ------------------------------------------------------------------
+    def toggle_fog_of_war(self):
+        self.fog_of_war = not self.fog_of_war
+        print(f"Fog of war: {'ON' if self.fog_of_war else 'OFF'}")
+        if not self.fog_of_war:
+            self.visited.clear()
+
+    def toggle_agent_view(self):
+        self.agent_view = not self.agent_view
+        print(f"Agent view (crop): {'ON' if self.agent_view else 'OFF'}")
+
+    def toggle_show_trail(self):
+        self.show_trail = not self.show_trail
+        print(f"Trail: {'ON' if self.show_trail else 'OFF'}")
+
+    # ------------------------------------------------------------------
+    #  Static helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _round_to_multiple_of_16(size: int) -> int:
+        return ((size + 15) // 16) * 16
+
+    def _get_text_height(self) -> int:
+        dummy = np.zeros((100, 100, 3), dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+        line1 = "Energy: 0.0"
+        line2 = "Step: 0/0"
+        (w1, h1), _ = cv2.getTextSize(line1, font, font_scale, thickness)
+        (w2, h2), _ = cv2.getTextSize(line2, font, font_scale, thickness)
+        return h1 + h2 + 6
+
     def reset(self):
-        """Reset visualisation state for a new episode."""
         self.visited.clear()
         self.trail.clear()
         self.frames.clear()
 
-    def render(self, step: int) -> np.ndarray:
+    def render(self, step: int, show_text: bool = True) -> np.ndarray:
         """
-        Get the environment frame, apply visual effects, and optionally store/display.
-        Returns the processed frame (ready for display).
+        Get the environment frame, apply visual effects, and return it.
+        show_text: if False, suppress door/button numbers and food timers.
+        This method does NOT store the frame for video – that is done manually by the agent.
         """
-        raw_frame = self.env.render(self.render_size)
+        raw_frame = self.env.render(self.render_size, show_text)
         if raw_frame is None:
             return None
 
         frame = raw_frame.copy()
         y, x = self.env.agent_y, self.env.agent_x
         grid_size = self.env.grid_size
-
-        # Compute cell size from the rendered image dimensions
-        # (works for both Python and C++ environments)
         cell_size = frame.shape[0] // grid_size
 
-        # Update state: mark current cell and its 3x3 neighbourhood for fog of war
-        self.visited.add((int(y), int(x)))
+        # Update state for fog of war and trail
+        if self.fog_of_war or self.show_trail:
+            self.visited.add((int(y), int(x)))
+        if self.show_trail:
+            self.trail.append((int(y), int(x), step))
+
+        # Expand visited neighbourhood for fog of war (3x3 around agent)
         if self.fog_of_war:
             for dy in (-1, 0, 1):
                 for dx in (-1, 0, 1):
@@ -70,24 +116,18 @@ class Visualizer:
                     if 0 <= ny < grid_size and 0 <= nx < grid_size:
                         self.visited.add((ny, nx))
 
-        self.trail.append((int(y), int(x), step))
-
-        # Apply fog of war (preserves UI text)
+        # Apply fog of war
         if self.fog_of_war:
-            frame = self._apply_fog_of_war(frame, raw_frame, grid_size, cell_size)
+            frame = self._apply_fog_of_war(frame, grid_size, cell_size)
 
         # Apply agent view (crop)
         crop_offset = (0, 0)
         if self.agent_view:
             frame, crop_offset = self._apply_agent_view(frame, y, x, cell_size)
 
-        # Draw trail with alpha blending
-        if self.show_trail:
+        # Draw trail
+        if self.show_trail and len(self.trail) > 1:
             frame = self._draw_trail_alpha(frame, cell_size, step, crop_offset)
-
-        # Store frame (convert BGR to RGB for imageio)
-        if self.save_video:
-            self.frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
         return frame
 
@@ -97,35 +137,30 @@ class Visualizer:
             return
 
         if self.as_gif:
-            # GIF: 50 ms per frame → 20 fps, loop forever
             imageio.mimsave(self.video_path, self.frames, duration=50, loop=0)
             print(f"✓ Saved GIF to {self.video_path}")
         else:
-            # MP4: 20 fps (same as original VideoWriter setting)
             imageio.mimsave(self.video_path, self.frames, fps=20)
             print(f"✓ Saved MP4 to {self.video_path}")
 
         self.frames.clear()
 
-    # ---- Private helper methods (unchanged) ----
-    def _apply_fog_of_war(self, frame, original_frame, grid_size, cell_size):
-        """
-        Black out cells not visited, but keep the UI text from original_frame.
-        """
-        # First, black out grid cells
+    # ------------------------------------------------------------------
+    #  Private helper methods (unchanged)
+    # ------------------------------------------------------------------
+    def _apply_fog_of_war(self, frame, grid_size, cell_size):
+        text_height = self._text_height
         for yy in range(grid_size):
             for xx in range(grid_size):
-                if (yy, xx) not in self.visited:
-                    y0, y1 = yy * cell_size, (yy+1) * cell_size
-                    x0, x1 = xx * cell_size, (xx+1) * cell_size
-                    frame[y0:y1, x0:x1] = (0, 0, 0)
-
-        # Now copy back the text area (assuming text is drawn at top-left)
-        # The environment draws two lines of text at y=15 and y=35 (as per env.render())
-        # We'll copy these small rectangular regions from original_frame.
-        text_region_height = 46
-        if original_frame.shape[0] > text_region_height and original_frame.shape[1] > 0:
-            frame[0:text_region_height, 0:original_frame.shape[1]] = original_frame[0:text_region_height, 0:original_frame.shape[1]]
+                if (yy, xx) in self.visited:
+                    continue
+                y0 = yy * cell_size
+                if y0 < text_height:
+                    continue
+                y1 = (yy + 1) * cell_size
+                x0 = xx * cell_size
+                x1 = (xx + 1) * cell_size
+                frame[y0:y1, x0:x1] = (0, 0, 0)
         return frame
 
     def _apply_agent_view(self, frame, y, x, cell_size, view_size=3):
@@ -152,19 +187,12 @@ class Visualizer:
         return cropped, (left, top)
 
     def _draw_trail_alpha(self, frame, cell_size, current_step, crop_offset, trail_length=30):
-        """
-        Draw a trail that fades linearly to zero over `trail_length` steps.
-        Only the last `trail_length` segments of the trail are rendered.
-        """
         if len(self.trail) < 2:
             return frame
 
         left, top = crop_offset
-
-        # Create an alpha map (single channel, 0-255)
         alpha_map = np.zeros(frame.shape[:2], dtype=np.uint8)
 
-        # Draw segments in chronological order
         for i in range(len(self.trail) - 1):
             y1, x1, s1 = self.trail[i]
             y2, x2, s2 = self.trail[i + 1]
@@ -173,19 +201,14 @@ class Visualizer:
             if steps_ago > trail_length:
                 continue
 
-            # Exponential fade (looks smoother than linear)
             alpha = int(255 * np.exp(-steps_ago / (trail_length / 3)))
             if alpha == 0:
                 continue
 
-            # Compute pixel positions, adjusted for crop offset
             p1 = (int((x1 + 0.5) * cell_size) - left, int((y1 + 0.5) * cell_size) - top)
             p2 = (int((x2 + 0.5) * cell_size) - left, int((y2 + 0.5) * cell_size) - top)
-
-            # Draw the line segment with the calculated alpha value
             cv2.line(alpha_map, p1, p2, alpha, thickness=max(1, cell_size // 20))
 
-        # Blend the frame with a white overlay using the alpha map
         alpha_norm = alpha_map.astype(np.float32) / 255.0
         alpha_norm = np.expand_dims(alpha_norm, axis=2)
         blended = (frame.astype(np.float32) * (1 - alpha_norm) + 255 * alpha_norm).astype(np.uint8)

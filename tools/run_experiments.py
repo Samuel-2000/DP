@@ -299,10 +299,9 @@ def main():
 
     ppo_wins = run_experiment_1("rf_vs_ppo_experiment", args.dry_run)
 
-    if not ppo_wins:
-        print("\nREINFORCE won. Skipping all remaining experiments (PPO-specific).")
-        # Still run the hardcoded ones? They are all PPO-based, so skip as well.
-        return
+    #if not ppo_wins:
+    #    print("\nREINFORCE won. Skipping all remaining experiments (PPO-specific).")
+    #    return
 
     print("\nPPO won. Proceeding with all experiments...")
 

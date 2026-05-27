@@ -8,15 +8,19 @@ Samuel Kuchta <xkucht11@stud.fit.vutbr.cz> (2026)
 import cv2
 import numpy as np
 from typing import Dict, Any
-
-from src.core.constants import Actions
-from src.visualization.visualizer import Visualizer
+import time
 from pathlib import Path
 
-class HumanAgent:
-    """Human-controlled agent using keyboard input"""
-    
+from src.core.constants import Actions, DEFAULT_RENDER_SIZE
+from src.visualization.visualizer import Visualizer
+from src.core.agent_base import BaseAgent
+
+
+class HumanAgent(BaseAgent):
+    """Human-controlled agent using keyboard input (now with non‑blocking toggle handling)."""
+
     def __init__(self):
+        super().__init__()
         self.action_map = {
             ord('a'): Actions.LEFT,    ord('A'): Actions.LEFT,
             ord('d'): Actions.RIGHT,   ord('D'): Actions.RIGHT,
@@ -39,28 +43,10 @@ class HumanAgent:
             Actions.STAY: "Space",
             Actions.BUTTON: "B / Enter"
         }
-    
-    def act(self, observation: np.ndarray = None) -> int:
-        """Get action from keyboard input"""
-        while True:
-            key = cv2.waitKey(0) & 0xFF
-            
-            if key == ord('q') or key == 27:  # 'q' or Esc to quit
-                print("Quitting human play mode...")
-                return -1
-            
-            if key in self.action_map:
-                action = self.action_map[key]
-                action_name = Actions(action).name
-                print(f"Action selected: {action_name}")
-                return action
-            
-            print(f"Invalid key: {chr(key) if key < 128 else key}. Try again.")
-    
 
     def test(self, env, args) -> Dict[str, Any]:
         """
-        Human play mode with options from args.
+        Human play mode with non‑blocking key handling for toggles and actions.
         """
         rewards = []
         success_flags = []
@@ -87,44 +73,104 @@ class HumanAgent:
         print("  Quit:         Q or Esc")
         print("="*50)
 
+        self._print_visualization_controls()
+
         total_episodes = 0
+        early_stop = False
+        paused = False
+        pomdp_overview = False
+
+        target_frame_time = 1.0 / 20.0
 
         for epoch in range(args.epochs):
+            if early_stop:
+                break
             obs, info = env.reset()
             print(f"\n--- EPOCH {epoch+1}/{args.epochs}: New grid (Type: {env.task_class}, Complexity: {env.complexity_level:.2f}) ---")
 
             for ep_in_epoch in range(args.reinforce_intra_epochs):
+                if early_stop:
+                    break
                 if ep_in_epoch > 0:
                     obs, info = env.soft_reset()
                     print("  Soft reset: same grid, new chance!")
 
                 vid_name = f"human_{env.task_class}_comp_{env.complexity_level:.2f}_ep_{epoch}_{ep_in_epoch}"
                 vid_path = Path("results/videos") / f"{vid_name}.{'gif' if args.as_gif else 'mp4'}" if args.save_video else None
-                viz = Visualizer(env, args.save_video, vid_path, args.agent_view, args.fog_of_war, args.show_trail, args.as_gif)
+                viz = Visualizer(env, args.save_video, vid_path, args.agent_view,
+                                args.fog_of_war, args.show_trail, args.as_gif,
+                                DEFAULT_RENDER_SIZE)
 
                 print(f"\nEpisode {total_episodes + 1} (epoch {epoch+1}, episode {ep_in_epoch+1}/{args.reinforce_intra_epochs})")
                 episode_reward = 0
                 steps = 0
                 terminated = truncated = False
+                last_frame_time = time.perf_counter()
 
                 while not (terminated or truncated) and steps < env.max_steps:
-                    frame = viz.render(steps)
+                    # Render frame
+                    frame = viz.render(steps, show_text=not pomdp_overview)
                     if frame is not None:
+                        if pomdp_overview:
+                            frame = self._apply_pomdp_overview(frame, env, obs, viz.agent_view)
                         cv2.imshow('Human Play Mode', frame)
+                        if args.save_video:
+                            viz.frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-                    action = self.act()
-                    if action == -1:
-                        print("Episode ended early by user.")
+                    # Non‑blocking key check – handles toggles, pause, quit, actions
+                    key = cv2.waitKey(1) & 0xFF
+
+                    # Toggles & global controls
+                    if key == ord('f'):
+                        viz.toggle_fog_of_war()
+                    elif key == ord('v'):
+                        viz.toggle_agent_view()
+                    elif key == ord('t'):
+                        viz.toggle_show_trail()
+                    elif key == ord('p'):
+                        paused = not paused
+                        print(f"{'Paused' if paused else 'Resumed'}. Press P to toggle.")
+                    elif key == ord('o'):
+                        pomdp_overview = not pomdp_overview
+                        print(f"POMDP overview: {'ON' if pomdp_overview else 'OFF'}")
+                    elif key == ord('q') or key == 27:   # Q or Esc
+                        early_stop = True
                         break
 
-                    obs, reward, terminated, truncated, info = env.step(action)
-                    episode_reward += reward
-                    steps += 1
-                    # Use attribute access (info.energy) instead of dict
-                    print(f"Step {steps}: {Actions(action).name}, Reward={reward:.2f}, Energy={info.energy:.1f}")
+                    if paused:
+                        # Frame rate limiting while paused
+                        now = time.perf_counter()
+                        elapsed = now - last_frame_time
+                        if elapsed < target_frame_time:
+                            time.sleep(target_frame_time - elapsed)
+                        last_frame_time = time.perf_counter()
+                        continue
 
-                    if terminated or truncated:
-                        break
+                    # Action detection (only when not paused)
+                    action = None
+                    if key in self.action_map:
+                        action = self.action_map[key]
+                        action_name = Actions(action).name
+                        print(f"Action selected: {action_name}")
+                    elif key != 255:   # ignore no key pressed
+                        print(f"Invalid key: {chr(key) if 0 <= key < 128 else key}. Try again.")
+
+                    # If an action was chosen, execute it and break inner wait loop
+                    if action is not None:
+                        obs, reward, terminated, truncated, info = env.step(action)
+                        episode_reward += reward
+                        steps += 1
+                        print(f"Step {steps}: {Actions(action).name}, Reward={reward:.2f}, Energy={info.energy:.1f}")
+
+                        if terminated or truncated:
+                            break   # episode ended, will exit outer while
+
+                    # Frame rate limiting
+                    now = time.perf_counter()
+                    elapsed = now - last_frame_time
+                    if elapsed < target_frame_time:
+                        time.sleep(target_frame_time - elapsed)
+                    last_frame_time = time.perf_counter()
 
                 viz.finalize()
 
@@ -132,7 +178,9 @@ class HumanAgent:
                 success_flags.append(steps == env.max_steps)
                 steps_list.append(steps)
 
-                print(f"\nEpisode finished: Reward={episode_reward:.2f}, Steps={steps}/{env.max_steps}, Final Energy={info.energy:.1f}")
+                energy = info['energy'] if isinstance(info, dict) and 'energy' in info else 0.0
+                print(f"\nEpisode finished: Reward={episode_reward:.2f}, Steps={steps}/{env.max_steps}, Final Energy={energy:.1f}")
+                
                 cv2.waitKey(1000)
                 total_episodes += 1
 

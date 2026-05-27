@@ -1248,7 +1248,7 @@ GridMazeWorld::step(int action) {
     return {getObservation(), reward, terminated, false, info};
 }
 
-py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
+py::array_t<uint8_t> GridMazeWorld::render(int render_size, bool show_text) {
     int cell_size = std::max(1, render_size / grid_size_);
     int img_h = grid_size_ * cell_size;
     int img_w = grid_size_ * cell_size;
@@ -1269,6 +1269,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
         }
     };
 
+    // Draw grid cells
     for (int y = 0; y < grid_size_; ++y)
         for (int x = 0; x < grid_size_; ++x) {
             int cid = idx(y,x);
@@ -1279,6 +1280,7 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
             cv::rectangle(img, cv::Rect(x*cell_size, y*cell_size, cell_size, cell_size), color, cv::FILLED);
         }
 
+    // Food sources – always draw circles, but show text only if show_text is true
     for (const auto& fs : food_sources_) {
         int cx = fs.x * cell_size + cell_size/2;
         int cy = fs.y * cell_size + cell_size/2;
@@ -1288,62 +1290,75 @@ py::array_t<uint8_t> GridMazeWorld::render(int render_size) {
         } else {
             int r = cell_size / 5;
             cv::circle(img, cv::Point(cx,cy), r, cv::Scalar(0,0,0), -1);
-            int remaining = std::max(0, fs.regrow_step - step_counter_);
-            std::string text = std::to_string(remaining);
-            double fontScale = 0.6 * (cell_size / 30.0);
-            int thickness = std::max(1, cell_size / 30);
-            int baseline;
-            cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
-            cv::putText(img, text,
-                        cv::Point(cx - ts.width/2, cy + (ts.height - baseline)/2),
-                        cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
+            if (show_text) {
+                int remaining = std::max(0, fs.regrow_step - step_counter_);
+                std::string text = std::to_string(remaining);
+                double fontScale = 0.6 * (cell_size / 30.0);
+                int thickness = std::max(1, cell_size / 30);
+                int baseline;
+                cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
+                cv::putText(img, text,
+                            cv::Point(cx - ts.width/2, cy + (ts.height - baseline)/2),
+                            cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
+            }
         }
     }
 
+    // Doors – draw rectangle always, draw number only if show_text is true
     for (const auto& d : doors_) {
         int sz = cell_size * 3 / 5;
         int x0 = d.x * cell_size + (cell_size - sz) / 2;
         int y0 = d.y * cell_size + (cell_size - sz) / 2;
         cv::Scalar color = d.is_open ? cv::Scalar(50,50,50) : cv::Scalar(200,200,200);
         cv::rectangle(img, cv::Rect(x0, y0, sz, sz), color, cv::FILLED);
-
-        int cx = x0 + sz/2;
-        int cy = y0 + sz/2;
-        std::string text = std::to_string(d.number);
-        double fontScale = 0.6 * (cell_size / 30.0);
-        int thickness = std::max(1, cell_size / 30);
-        int baseline;
-        cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
-        cv::putText(img, text, cv::Point(cx - ts.width/2, cy + ts.height/2),
-                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0,0,0), thickness);
+        if (show_text) {
+            int cx = x0 + sz/2;
+            int cy = y0 + sz/2;
+            std::string text = std::to_string(d.number);
+            double fontScale = 0.6 * (cell_size / 30.0);
+            int thickness = std::max(1, cell_size / 30);
+            int baseline;
+            cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
+            cv::putText(img, text, cv::Point(cx - ts.width/2, cy + ts.height/2),
+                        cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0,0,0), thickness);
+        }
     }
 
+    // Buttons – draw circle always, draw number only if show_text is true
     for (const auto& b : buttons_) {
         int cx = b.x * cell_size + cell_size/2;
         int cy = b.y * cell_size + cell_size/2;
         int r = cell_size / 5;
         cv::Scalar color = b.is_broken ? cv::Scalar(200,0,0) : cv::Scalar(0,0,200);
         cv::circle(img, cv::Point(cx,cy), r, color, -1);
-        int doorNumber = (b.door_idx < static_cast<int>(doors_.size())) ? doors_[b.door_idx].number : 0;
-        std::string text = std::to_string(doorNumber);
-        double fontScale = 0.6 * (cell_size / 30.0);
-        int thickness = std::max(1, cell_size / 40);
-        int baseline;
-        cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
-        cv::putText(img, text, cv::Point(cx - ts.width/2, cy + ts.height/2),
-                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
+        if (show_text) {
+            int doorNumber = (b.door_idx < static_cast<int>(doors_.size())) ? doors_[b.door_idx].number : 0;
+            std::string text = std::to_string(doorNumber);
+            double fontScale = 0.6 * (cell_size / 30.0);
+            int thickness = std::max(1, cell_size / 40);
+            int baseline;
+            cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
+            cv::putText(img, text, cv::Point(cx - ts.width/2, cy + ts.height/2),
+                        cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(255,255,255), thickness);
+        }
     }
 
+    // Draw agent
     int ax = agent_x_ * cell_size + cell_size/2;
     int ay = agent_y_ * cell_size + cell_size/2;
     int r = cell_size / 2;
     cv::circle(img, cv::Point(ax,ay), r, cv::Scalar(255,255,255), -1);
 
-    std::stringstream info_ss, doors_ss;
-    info_ss << std::fixed << std::setprecision(1);
-    info_ss << "Energy: " << energy_ << " | Step: " << steps_ << "/" << max_steps_;
-    cv::putText(img, info_ss.str(), cv::Point(10,15), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,150), 1);
+    // Draw energy and step info
+    if (show_text) {
+        std::stringstream info_ss;
+        info_ss << std::fixed << std::setprecision(1);
+        info_ss << "Energy: " << energy_ << " | Step: " << steps_ << "/" << max_steps_;
+        cv::putText(img, info_ss.str(), cv::Point(10,15), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,150), 1);
+    }
 
+
+    // Convert to numpy array
     std::vector<size_t> shape = { static_cast<size_t>(img_h), static_cast<size_t>(img_w), 3 };
     py::array_t<uint8_t> result(shape);
     memcpy(result.mutable_data(), img.data, img.total() * img.elemSize());

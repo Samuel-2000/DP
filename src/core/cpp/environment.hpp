@@ -98,7 +98,7 @@ public:
     std::tuple<std::vector<int>, std::map<std::string, double>> soft_reset();
     std::tuple<const std::vector<int>&, double, bool, bool, StepInfo> step(int action);
     const StepInfo& get_last_info() const { return last_info_; }
-    py::array_t<uint8_t> render(int render_size);
+    py::array_t<uint8_t> render(int render_size, bool show_text = true);
 
     int get_max_steps() const { return max_steps_; }
     float get_energy() const { return energy_; }

@@ -20,17 +20,17 @@ def parse_args():
 
             
             # Test a model
-            python run.py test --model experiments/lstm_example.pt --epochs 10 --visualize --show-trail --fog-of-war --save-video --task-class complex --complexity-level 0.5 --grid-size 19 max-steps 200
+            python run.py test --model experiments/lstm_example.pt --epochs 10 --visualize --show-trail --task-class complex --complexity-level 0.5 --grid-size 19 --max-steps 200  [--save-video]
             python run.py test --model experiments/lstm_example.pt --epochs 10 --task-class doors --complexity-level 0.7 --n-doors 5
 
             # dynamic complexity test across stages and complexities
-            python run.py test --model experiments/lstm_example.pt --epochs 5 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
-            run.py test --model /experiments/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --stages basic doors buttons --visualize --save-video
+            python run.py test --model experiments/lstm_example.pt --epochs 5 --dynamic-complexity [--curriculum-stages basic doors buttons --complexities 0.0 0.5 1.0]
+            run.py test --model /experiments/lstm/no_aux/lstm_64b_0.0005lr/2026-04-30_18-11-03/best.pt --epochs 1 --reinforce-intra-epochs 2 --dynamic-complexity --curriculum-stages basic doors buttons --visualize --save-video
 
             # Human play mode
             python run.py test --play --epochs 4 --task-class complex --complexity-level 0.5 --grid-size 19 --max-steps 200
-            python run.py test --play --epochs 1 --dynamic-complexity [--stages basic doors buttons --complexities 0.0 0.5 1.0]
-            python run.py test --play --epochs 1 --dynamic-complexity --stages basic doors buttons
+            python run.py test --play --epochs 1 --dynamic-complexity [--curriculum-stages basic doors buttons --complexities 0.0 0.5 1.0]
+            python run.py test --play --epochs 1 --dynamic-complexity --curriculum-stages basic doors buttons complex
 
             # Plot saved metrics
             python run.py plot --metrics-path ./experiments/lstm/reinforce/no_aux/64b_0.0005lr_gs11/2026-05-08_23-12-30

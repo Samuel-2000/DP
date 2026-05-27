@@ -40,7 +40,7 @@ PYBIND11_MODULE(maze_core, m) {
         .def("reset", &GridMazeWorld::reset, py::arg("seed") = py::none())
         .def("step", &GridMazeWorld::step)          // returns tuple with StepInfo
         .def("soft_reset", &GridMazeWorld::soft_reset)
-        .def("render", &GridMazeWorld::render, py::arg("render_size"))
+        .def("render", &GridMazeWorld::render, py::arg("render_size"), py::arg("show_text") = true)
         .def_property_readonly("max_steps", &GridMazeWorld::get_max_steps)
         .def_property_readonly("energy", &GridMazeWorld::get_energy)
         .def_property_readonly("task_class", &GridMazeWorld::get_task_class)
