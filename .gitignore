@@ -1,4 +1,4 @@
-experiments/
+
 logs/
 
 __pycache__/
@@ -7,7 +7,7 @@ __pycache__/
 
 others/
 
-*.pt
+
 !*best.pt
 
 

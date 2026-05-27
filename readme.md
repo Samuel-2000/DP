@@ -44,6 +44,13 @@ Examples are provided in the file.
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 pip install -r requirements.txt
 ```
+on linux we need opencv for c++ if not already installed.:
+```bash
+apt-get install -y libopencv-dev
+
+```
+on windows download, extract and put into %PATH%: https://sourceforge.net/projects/opencvlibrary/
+
 
 ---
 
