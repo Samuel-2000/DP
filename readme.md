@@ -80,8 +80,7 @@ Watch `env.mp4` to understand what the agent perceives in the environment.
 
 ### 4. Run Full Experiments
 
-⚠️ Expected runtime: ~2 days (Geforce GTX 1660 super, Intel Core I5-8500)
-💡 Recommended: CUDA-enabled PyTorch + GPU with 6GB+ VRAM  
+Expected runtime: ~2 days (Geforce GTX 1660 super, Intel Core I5-8500). Recommended: CUDA-enabled PyTorch + GPU with 6GB+ VRAM  
 
 ```bash
 python tools/run_experiments.py
