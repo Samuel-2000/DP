@@ -51,7 +51,7 @@ on linux:
 ```bash
 apt-get install -y libopencv-dev
 ```
-on windows download, extract and put into %PATH%: https://sourceforge.net/projects/opencvlibrary/
+on windows download, extract and put into root folder (C:\opencv\build): https://sourceforge.net/projects/opencvlibrary/
 
 
 example on google collab: https://colab.research.google.com/drive/1o8cO3dCzL7U-lZhuhCCrZ7CBpT8TyppX?usp=sharing
