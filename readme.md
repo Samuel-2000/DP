@@ -12,6 +12,14 @@ This project implements the **GridMazeWorld** environment along with training al
 The maze environment layout, vectorisation, network models and REINFORCE trainer are inspired by:  
 https://github.com/michal-hradis/maze-rl  
 
+
+## Environment Preview
+
+![Environment Preview](env_preview.gif)
+
+
+[Video Preview](env.mp4)
+
 ---
 
 ## Running Experiments
